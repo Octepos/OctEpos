@@ -27,6 +27,9 @@ interface TopNavProps {
   onOpenPolicyManager: () => void;
   onOpenArchitectureExplorer: () => void;
   onOpenPublicRelease: () => void;
+  onOpenCertificateModal?: () => void;
+  onOpenCloudRunPerimeter?: () => void;
+  isSseConnected?: boolean;
   activeTestRunning: boolean;
   forensicCount: number;
 }
@@ -40,6 +43,9 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenPolicyManager,
   onOpenArchitectureExplorer,
   onOpenPublicRelease,
+  onOpenCertificateModal,
+  onOpenCloudRunPerimeter,
+  isSseConnected = true,
   activeTestRunning,
   forensicCount,
 }) => {
@@ -68,7 +74,7 @@ export const TopNav: React.FC<TopNavProps> = ({
             </div>
             <p className="text-xs text-neutral-400 tracking-tight">
               {appMode === 'EXECUTIVE_AUDIT' 
-                ? 'Enterprise Executive & Statutory Audit Suite • Feddes & 307 New Brighton Rd' 
+                ? 'Enterprise Executive & Statutory Audit Suite • Enterprise Client Alpha & Commercial Asset 01' 
                 : 'Fluid Intelligence Workspace & Capability-Based Security Router'}
             </p>
           </div>
@@ -103,6 +109,40 @@ export const TopNav: React.FC<TopNavProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-2.5">
+          {/* Live SSE Stream Status Indicator */}
+          <div className="hidden lg:flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-950/40 px-2.5 py-1 font-mono text-[10px] text-emerald-300 shadow-sm" title="Real-time Server-Sent Events (SSE) stream to Cloud Run backend">
+            <span className="relative flex h-2 w-2">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isSseConnected ? 'bg-emerald-400 opacity-75' : 'bg-amber-400 opacity-75'}`} />
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${isSseConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            </span>
+            <span>{isSseConnected ? 'SSE: ASIA-SE1 RUNNING' : 'SSE: RECONNECTING'}</span>
+          </div>
+
+          {/* Cryptographic Audit Certificate Modal Trigger */}
+          {onOpenCertificateModal && (
+            <button
+              onClick={onOpenCertificateModal}
+              className="flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-950/40 px-3 py-2 text-xs font-mono text-emerald-200 hover:bg-emerald-900/60 hover:text-white transition-colors shadow-sm"
+              title="Inspect & Verify Cryptographically Signed Audit Certificate (RFC 8785)"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Audit Certificate</span>
+              <span className="sm:hidden">Cert</span>
+            </button>
+          )}
+
+          {/* Cloud Run VPC Security Blueprint Modal Trigger */}
+          {onOpenCloudRunPerimeter && (
+            <button
+              onClick={onOpenCloudRunPerimeter}
+              className="hidden md:flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-950/30 px-3 py-2 text-xs font-mono text-cyan-200 hover:bg-cyan-900/50 hover:text-white transition-colors shadow-sm"
+              title="Google Cloud Run & Zero-Egress VPC Firewall Blueprint"
+            >
+              <Lock className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Cloud Run VPC</span>
+            </button>
+          )}
+
           {/* Public Release Hub Button - always accessible */}
           <button
             onClick={onOpenPublicRelease}

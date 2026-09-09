@@ -118,7 +118,7 @@ export const DynamicPolicyModal: React.FC<DynamicPolicyModalProps> = ({
                 <strong className="text-emerald-400">The Invariant Root (Hardcoded):</strong> Zero Ambient Authority, physical memory space termination, and cryptographic SHA-256 state hashing are mathematically baked into the Minimal Enduring Core and cannot be altered by configuration.
               </li>
               <li>
-                <strong className="text-cyan-400">The Dynamic Policy Service (Declarative):</strong> Administrators declare fine-grained business logic (e.g. Feddes master ledger write locks, commercial API spend ceilings, domain whitelists) without recompiling the underlying kernel.
+                <strong className="text-cyan-400">The Dynamic Policy Service (Declarative):</strong> Administrators declare fine-grained business logic (e.g. corporate master ledger write locks, commercial API spend ceilings, domain whitelists) without recompiling the underlying kernel.
               </li>
             </ul>
           </div>

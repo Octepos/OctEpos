@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, 
   Layers, 
@@ -7,11 +7,11 @@ import {
   CheckCircle2, 
   Server, 
   Flame, 
-  RefreshCw,
-  ExternalLink,
-  Github,
-  Cloud,
-  Briefcase
+  RefreshCw, 
+  ExternalLink, 
+  Github, 
+  Cloud, 
+  Briefcase 
 } from 'lucide-react';
 import { 
   INITIAL_SUBSTRATES, 
@@ -40,6 +40,8 @@ import { PublicReleaseModal } from './components/PublicReleaseModal';
 import { ProxmoxClusterModal } from './components/ProxmoxClusterModal';
 import { AdversarialTestModal } from './components/AdversarialTestModal';
 import { EpistemicPrincipleModal } from './components/EpistemicPrincipleModal';
+import { AuditCertificateModal } from './components/AuditCertificateModal';
+import { CloudRunPerimeterModal } from './components/CloudRunPerimeterModal';
 
 export default function App() {
   const [appMode, setAppMode] = useState<AppMode>('EXECUTIVE_AUDIT');
@@ -49,6 +51,7 @@ export default function App() {
   const [canaryState, setCanaryState] = useState<CanaryState>(INITIAL_CANARY_STATE);
   const [forensicEvents, setForensicEvents] = useState<ForensicEvent[]>(INITIAL_FORENSIC_EVENTS);
   const [policyDecisions, setPolicyDecisions] = useState<PolicyDecision[]>(INITIAL_POLICY_DECISIONS);
+  const [isSseConnected, setIsSseConnected] = useState(true);
 
   // Modals state
   const [isAdversarialModalOpen, setIsAdversarialModalOpen] = useState(false);
@@ -57,7 +60,75 @@ export default function App() {
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const [isArchitectureModalOpen, setIsArchitectureModalOpen] = useState(false);
   const [isPublicReleaseModalOpen, setIsPublicReleaseModalOpen] = useState(false);
+  const [isAuditCertificateModalOpen, setIsAuditCertificateModalOpen] = useState(false);
+  const [isCloudRunModalOpen, setIsCloudRunModalOpen] = useState(false);
   const [activeTestRunning, setActiveTestRunning] = useState(false);
+
+  // Live Server-Sent Events (SSE) stream listener
+  useEffect(() => {
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('/api/telemetry/stream');
+      es.onopen = () => setIsSseConnected(true);
+      es.onerror = () => setIsSseConnected(false);
+
+      es.addEventListener('connected', (e: any) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.merkleEpoch) {
+            setCanaryState(prev => ({
+              ...prev,
+              merkleEpoch: data.merkleEpoch,
+              currentStateRoot: data.currentStateRoot || prev.currentStateRoot
+            }));
+          }
+        } catch (err) {}
+      });
+
+      es.addEventListener('lifecycle_teardown', (e: any) => {
+        try {
+          const data = JSON.parse(e.data);
+          setCanaryState(prev => ({
+            ...prev,
+            merkleEpoch: data.merkleEpoch || prev.merkleEpoch + 1,
+            currentStateRoot: data.currentStateRoot || prev.currentStateRoot,
+            verifiedProofs: prev.verifiedProofs + 1
+          }));
+        } catch (err) {}
+      });
+
+      es.addEventListener('glass_floor_intercept', (e: any) => {
+        try {
+          const data = JSON.parse(e.data);
+          const newEvt: ForensicEvent = {
+            id: `EVT-${data.handId || Date.now().toString(36)}`,
+            timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
+            substrateId: 'gemini',
+            attemptedAction: data.policyRule || 'POLICY_VIOLATION_INTERCEPTED',
+            targetResource: data.detail || 'Internal Network Socket / DB Core',
+            violationCode: 'DETERMINISTIC_GLASS_FLOOR_INTERCEPT',
+            violationCategory: 'NET_EGRESS',
+            nonAnthropomorphicEvaluation: data.detail || 'Intercepted pre-syscall. Zero syscalls dispatched to underlying OS.',
+            interceptLocation: 'USERSPACE_REFERENCE_MONITOR_DETERMINISTIC_GLASS_FLOOR',
+            syscallsDispatched: 0,
+            computeCost: 0,
+            stateLeakage: '0.00%',
+            ephemeralTokenId: data.handId || 'EPHEM-TOKEN-AUTO',
+            merkleStateRoot: canaryState.currentStateRoot,
+            rawPayload: data,
+            remediated: true
+          };
+          setForensicEvents(prev => [newEvt, ...prev]);
+        } catch (err) {}
+      });
+    } catch (err) {
+      console.warn('SSE connection skipped in client:', err);
+    }
+
+    return () => {
+      es?.close();
+    };
+  }, []);
 
   const handleForensicTriggered = (newEvent: ForensicEvent) => {
     setForensicEvents(prev => [newEvent, ...prev]);
@@ -105,6 +176,9 @@ export default function App() {
         onOpenPolicyManager={() => setIsPolicyModalOpen(true)}
         onOpenArchitectureExplorer={() => setIsArchitectureModalOpen(true)}
         onOpenPublicRelease={() => setIsPublicReleaseModalOpen(true)}
+        onOpenCertificateModal={() => setIsAuditCertificateModalOpen(true)}
+        onOpenCloudRunPerimeter={() => setIsCloudRunModalOpen(true)}
+        isSseConnected={isSseConnected}
         activeTestRunning={activeTestRunning}
         forensicCount={forensicEvents.length}
       />
@@ -151,6 +225,8 @@ export default function App() {
             onOpenPolicyManager={() => setIsPolicyModalOpen(true)}
             onOpenArchitectureExplorer={() => setIsArchitectureModalOpen(true)}
             onOpenPublicRelease={() => setIsPublicReleaseModalOpen(true)}
+            onOpenCertificateModal={() => setIsAuditCertificateModalOpen(true)}
+            onOpenCloudRunPerimeter={() => setIsCloudRunModalOpen(true)}
             onSelectSubstrate={(id) => setSelectedSubstrateId(id)}
           />
         ) : (
@@ -280,6 +356,17 @@ export default function App() {
         isOpen={isPublicReleaseModalOpen}
         onClose={() => setIsPublicReleaseModalOpen(false)}
         onRunTest={() => setIsAdversarialModalOpen(true)}
+      />
+
+      <AuditCertificateModal
+        isOpen={isAuditCertificateModalOpen}
+        onClose={() => setIsAuditCertificateModalOpen(false)}
+        canaryState={canaryState}
+      />
+
+      <CloudRunPerimeterModal
+        isOpen={isCloudRunModalOpen}
+        onClose={() => setIsCloudRunModalOpen(false)}
       />
     </div>
   );

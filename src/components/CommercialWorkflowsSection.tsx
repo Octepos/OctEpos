@@ -36,18 +36,32 @@ export const CommercialWorkflowsSection: React.FC<CommercialWorkflowsSectionProp
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
 
   const currentWorkflow = COMMERCIAL_WORKFLOWS.find(w => w.id === selectedWorkflowId) || COMMERCIAL_WORKFLOWS[0];
+  const [liveArtifactData, setLiveArtifactData] = useState<any>(null);
 
   const handleStartWorkflow = async () => {
     if (isRunning) return;
     setIsRunning(true);
     setActiveStep(1);
+    setLiveArtifactData(null);
     setExecutionTrace([
       `[CORE_INIT] Minimal Enduring Core received commercial intent from ${currentWorkflow.clientOrProject}.`,
       `[TASK_CLASSIFY] Domain: ${currentWorkflow.domain}. Authority boundary: INVARIANT DETERMINISTIC REFERENCE MONITOR.`
     ]);
 
+    // Background call to backend Substrate Router & Glass Floor
+    const backendPromise = fetch('/api/substrate/invoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        substrateId: currentWorkflow.substrateId,
+        intent: currentWorkflow.intent,
+        domain: currentWorkflow.domain,
+        clientOrProject: currentWorkflow.clientOrProject
+      })
+    }).then(res => res.ok ? res.json() : null).catch(() => null);
+
     // Step 1 -> Step 2: Allocate Substrate & Spawn Ephemeral Hand
-    await new Promise(r => setTimeout(r, 800));
+    await new Promise(r => setTimeout(r, 700));
     setActiveStep(2);
     if (onSelectSubstrate) onSelectSubstrate(currentWorkflow.substrateId);
     setExecutionTrace(prev => [
@@ -58,7 +72,7 @@ export const CommercialWorkflowsSection: React.FC<CommercialWorkflowsSectionProp
     ]);
 
     // Step 2 -> Step 3: Autonomous Attempted Action
-    await new Promise(r => setTimeout(r, 1100));
+    await new Promise(r => setTimeout(r, 900));
     setActiveStep(3);
     setExecutionTrace(prev => [
       ...prev,
@@ -67,7 +81,7 @@ export const CommercialWorkflowsSection: React.FC<CommercialWorkflowsSectionProp
     ]);
 
     // Step 3 -> Step 4: Deterministic Glass Floor Intercept
-    await new Promise(r => setTimeout(r, 1100));
+    await new Promise(r => setTimeout(r, 900));
     setActiveStep(4);
     setExecutionTrace(prev => [
       ...prev,
@@ -77,9 +91,14 @@ export const CommercialWorkflowsSection: React.FC<CommercialWorkflowsSectionProp
       `  >> Capital Protected: ${currentWorkflow.costSaved}.`
     ]);
 
+    const backendResult = await backendPromise;
+    if (backendResult?.artifactContent) {
+      setLiveArtifactData(backendResult.artifactContent);
+    }
+
     // Log administrative policy decision
     const newDecision: PolicyDecision = {
-      id: `POL-AUTO-${Date.now().toString().slice(-4)}`,
+      id: backendResult?.handId ? `POL-${backendResult.handId.substring(5, 9)}` : `POL-AUTO-${Date.now().toString().slice(-4)}`,
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
       taskName: currentWorkflow.title,
       clientContext: currentWorkflow.clientOrProject,
@@ -87,19 +106,20 @@ export const CommercialWorkflowsSection: React.FC<CommercialWorkflowsSectionProp
       status: 'POLICY DENIAL',
       reason: currentWorkflow.policyDenialReason,
       costSaved: currentWorkflow.costSaved,
-      stateIntegrity: '100% Unaltered (SHA-256 Verified)',
+      stateIntegrity: backendResult?.currentStateRoot ? `Verified Root (${backendResult.currentStateRoot.substring(0, 10)}...)` : '100% Unaltered (SHA-256 Verified)',
       dispatchedSyscalls: 0,
       substrate: currentWorkflow.substrateId,
-      category: currentWorkflow.id === 'feddes-finance-risk' ? 'LEDGER_MUTATION' : 'UNMETERED_API_SPEND'
+      category: currentWorkflow.id === 'client-alpha-risk' ? 'LEDGER_MUTATION' : 'UNMETERED_API_SPEND'
     };
     onLogPolicyDecision(newDecision);
 
     // Step 4 -> Step 5: Artifact Extraction & Hand Destruction
-    await new Promise(r => setTimeout(r, 1200));
+    await new Promise(r => setTimeout(r, 800));
     setActiveStep(5);
     setExecutionTrace(prev => [
       ...prev,
       `[SCHEMA_CAST] Canonical artifact [${currentWorkflow.artifactName}] safely extracted through strict schema casting.`,
+      backendResult?.artifactContent?.rawSummary ? `[REASONING_SYNTHESIS] Generated via stateless cognitive model without ambient privileges.` : `[STATUTORY_SYNTHESIS] Validated against canonical risk schema.`,
       `[HAND_DESTROYED] Ephemeral execution context physically terminated. Memory space dropped (WASM / isolate heap freed).`,
       `[STATE_ROOT] Mathematical SHA-256 state transition verified: 0.0000% state residue. Master ledger intact.`
     ]);
@@ -110,10 +130,16 @@ export const CommercialWorkflowsSection: React.FC<CommercialWorkflowsSectionProp
     setActiveStep(0);
     setIsRunning(false);
     setExecutionTrace([]);
+    setLiveArtifactData(null);
   };
 
   const handleDownloadArtifact = () => {
-    const content = `OCTEPOS CANONICAL ARTIFACT EXPORT\nClient: ${currentWorkflow.clientOrProject}\nDomain: ${currentWorkflow.domain}\nArtifact: ${currentWorkflow.artifactName}\nVerification: DETERMINISTIC_GLASS_FLOOR_CLEARED\n\nSummary:\n${currentWorkflow.artifactSnippet}\n\nSecurity Guarantee:\n- Ephemeral Hand: PHYSICALLY DESTROYED\n- Residual State Leakage: 0.0000%\n- Master Ledger Status: UNTOUCHED (0 Mutations)\n- Attestation: SHA-256 Merkle Provenance Verified\n`;
+    let content = `OCTEPOS CANONICAL ARTIFACT EXPORT\nClient: ${currentWorkflow.clientOrProject}\nDomain: ${currentWorkflow.domain}\nArtifact: ${currentWorkflow.artifactName}\nVerification: DETERMINISTIC_GLASS_FLOOR_CLEARED\n\nSummary:\n${currentWorkflow.artifactSnippet}\n`;
+    if (liveArtifactData) {
+      content += `\nSynthesized Payload:\n${JSON.stringify(liveArtifactData, null, 2)}\n`;
+    }
+    content += `\nSecurity Guarantee:\n- Ephemeral Hand: PHYSICALLY DESTROYED\n- Residual State Leakage: 0.0000%\n- Master Ledger Status: UNTOUCHED (0 Mutations)\n- Attestation: SHA-256 Merkle Provenance Verified\n`;
+
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -165,7 +191,7 @@ export const CommercialWorkflowsSection: React.FC<CommercialWorkflowsSectionProp
                   : 'border-neutral-800 bg-neutral-950/60 text-neutral-400 hover:text-neutral-200'
               }`}
             >
-              {wf.id === 'feddes-finance-risk' ? (
+              {wf.id === 'client-alpha-risk' ? (
                 <Landmark className="h-3.5 w-3.5 text-amber-400" />
               ) : (
                 <Building2 className="h-3.5 w-3.5 text-cyan-400" />
@@ -330,7 +356,7 @@ export const CommercialWorkflowsSection: React.FC<CommercialWorkflowsSectionProp
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono">
               <div>
                 <div className="flex items-center gap-2 text-neutral-200 font-semibold">
-                  {currentWorkflow.id === 'feddes-finance-risk' ? (
+                  {currentWorkflow.id === 'client-alpha-risk' ? (
                     <FileText className="h-4 w-4 text-cyan-400" />
                   ) : (
                     <FileSpreadsheet className="h-4 w-4 text-emerald-400" />

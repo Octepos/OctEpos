@@ -169,7 +169,7 @@ export const CommercialArchitectureModal: React.FC<CommercialArchitectureModalPr
                   <span>Deployment Model B: Dedicated Sovereign Commercial Terminal (The "OCTEPOS Workstation")</span>
                 </div>
                 <p className="text-xs text-neutral-300 leading-relaxed">
-                  Positioned for defense agencies, hedge funds, family offices, and regulated banks (e.g., Feddes Finance Ltd).
+                  Positioned for defense agencies, hedge funds, family offices, and regulated banks (e.g., Enterprise Client Alpha).
                   Runs as a hardened, air-gapped terminal where analysts evaluate deals and loan portfolios in an isolated bubble:
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">

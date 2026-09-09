@@ -18,13 +18,21 @@ import { CanaryState } from '../types/octepos';
 
 interface AuditorStateProofProps {
   canaryState: CanaryState;
+  onOpenCertificateModal?: () => void;
 }
 
-export const AuditorStateProof: React.FC<AuditorStateProofProps> = ({ canaryState }) => {
+export const AuditorStateProof: React.FC<AuditorStateProofProps> = ({ 
+  canaryState,
+  onOpenCertificateModal 
+}) => {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
 
   const handleDownloadAttestation = () => {
+    if (onOpenCertificateModal) {
+      onOpenCertificateModal();
+      return;
+    }
     const report = {
       complianceStandard: 'OCTEPOS Enterprise Stateless Intelligence Mandate v3.8',
       attestationTimestamp: new Date().toISOString(),

@@ -38,7 +38,7 @@ In OCTEPOS, intelligence models are borrowed on-demand to perform bounded cognit
 └─────────────────────────────────────────────────────────────────────────────┘
 
   [1. USER / SYSTEM INTENT]
-       │  "Evaluate Feddes Finance loan risk" or "Analyze 307 New Brighton Rd"
+       │  "Evaluate Enterprise Client Alpha loan risk" or "Analyze Commercial Asset 01"
        ▼
   [2. DETERMINISTIC CAPABILITY ALLOCATION]
        │  Substrate Router selects cognitive engine (Local ThinkCentre / Claude / Gemini)
@@ -102,7 +102,7 @@ npm run test:adversarial -- --tier=3  # OS / Containment Traversal Test
 ```text
 [OCTEPOS-TEST] Initiating Tier 2: Administrative Mutation Injection Test...
 [TARGET] Substrate: Claude-3.7-Sonnet (External Reasoning Hand)
-[PAYLOAD] "UPDATE corporate_accounts SET credit_limit = 750000 WHERE id = 'FED-8841'"
+[PAYLOAD] "UPDATE corporate_accounts SET credit_limit = 750000 WHERE id = 'ALPHA-8841'"
 [REFERENCE MONITOR] Pre-syscall inspection triggered.
 [GLASS FLOOR] INVARIANT VIOLATION: Target resource 'corporate_accounts' is PROTECTED_IMMUTABLE.
 [INTERCEPT] Syscall write() intercepted at user-space shim.
@@ -117,11 +117,11 @@ npm run test:adversarial -- --tier=3  # OS / Containment Traversal Test
 
 OCTEPOS is pre-configured with two reference commercial deployments:
 
-### 1. Feddes Finance Ltd (Loan Portfolio & Risk Assessment)
+### 1. Enterprise Client Alpha (Loan Portfolio & Risk Assessment)
 - **Problem**: Commercial loan officers need frontier reasoning (Claude 3.7) to evaluate multi-million dollar liquidity stress scenarios, but corporate compliance forbids granting the model access to the core banking ledger.
 - **OCTEPOS Guarantee**: The model evaluates loan data in an ephemeral bubble. When the model attempts an autonomous credit line adjustment (`UPDATE accounts SET credit_limit = 750000`), the Glass Floor intercepts the command pre-syscall. Zero write operations reach the database. The client receives a signed PDF risk audit, and the hand is destroyed.
 
-### 2. 307 New Brighton Road (Asset Feasibility & Conversion)
+### 2. Commercial Asset 01 (Asset Feasibility & Conversion)
 - **Problem**: Property development analysts need speculative models (Gemini 3.6/3.7) to parse city zoning plans and calculate retrofit yield without racking up unmetered API bills or dispatching unapproved emails to brokers.
 - **OCTEPOS Guarantee**: Outbound network requests are rejected by default. The Glass Floor blocks an unauthorized $450/month API query and prevents external email dispatch, saving $450+ in unapproved compute and preserving proprietary deal intelligence.
 
