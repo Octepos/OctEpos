@@ -185,3 +185,41 @@ export interface DynamicPolicyRule {
   enforcement: 'INTERCEPT_PRE_SYSCALL' | 'REVOKE_LEASE' | 'ISOLATE_ARTIFACT';
   enabled: boolean;
 }
+
+export interface EvidenceGateTriageEvent {
+  id: string;
+  alertId: string;
+  verdict: 'CONFIRMED_TRUE_POSITIVE' | 'FILTERED_FALSE_POSITIVE' | 'INSUFFICIENT_EVIDENCE';
+  confidenceScore: number;
+  vulnerabilityType: string;
+  reasoningSteps: string[];
+  attackScenario?: string;
+  sanitizationEvidence?: string;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  provenanceDigest: string;
+  merkleEpoch: number;
+  timestamp: string;
+}
+
+export interface ThreePillarStatus {
+  glassFloor: {
+    status: 'OPTIMAL_ZERO_STATE' | 'INTERCEPTING';
+    syscallsDispatched: 0;
+    computeCostSunk: 0;
+    stateLeakage: '0.00%';
+  };
+  substrateRouter: {
+    status: 'QUORUM_LOCKED' | 'DEGRADED';
+    nodesOnline: number;
+    latencyMs: number;
+    splitBrainDetected: boolean;
+    zeroEgressEnforced: boolean;
+  };
+  evidenceGate: {
+    status: 'ACTIVE_TRIAGE' | 'PENALTY_DOWNRANKED';
+    verifiedCount: number;
+    falsePositiveSuppressionRate: string;
+    cotMandateDepth: number;
+    latestDigest: string;
+  };
+}

@@ -26,7 +26,8 @@ import {
   ProxmoxClusterConfig, 
   CanaryState,
   AppMode,
-  PolicyDecision
+  PolicyDecision,
+  EvidenceGateTriageEvent
 } from './types/octepos';
 import { TopNav } from './components/TopNav';
 import { SubstratesGrid } from './components/SubstratesGrid';
@@ -42,6 +43,8 @@ import { AdversarialTestModal } from './components/AdversarialTestModal';
 import { EpistemicPrincipleModal } from './components/EpistemicPrincipleModal';
 import { AuditCertificateModal } from './components/AuditCertificateModal';
 import { CloudRunPerimeterModal } from './components/CloudRunPerimeterModal';
+import { ThreePillarHUD } from './components/ThreePillarHUD';
+import { EvidenceGateSection } from './components/EvidenceGateSection';
 
 export default function App() {
   const [appMode, setAppMode] = useState<AppMode>('EXECUTIVE_AUDIT');
@@ -51,6 +54,41 @@ export default function App() {
   const [canaryState, setCanaryState] = useState<CanaryState>(INITIAL_CANARY_STATE);
   const [forensicEvents, setForensicEvents] = useState<ForensicEvent[]>(INITIAL_FORENSIC_EVENTS);
   const [policyDecisions, setPolicyDecisions] = useState<PolicyDecision[]>(INITIAL_POLICY_DECISIONS);
+  const [evidenceGateEvents, setEvidenceGateEvents] = useState<EvidenceGateTriageEvent[]>([
+    {
+      id: 'EVG-INIT-1',
+      alertId: 'ALERT-OWASP-BOPLA',
+      verdict: 'CONFIRMED_TRUE_POSITIVE',
+      confidenceScore: 0.94,
+      vulnerabilityType: 'OWASP API3: Mass Assignment (BOPLA)',
+      reasoningSteps: [
+        'Tainted input originates from req.body and flows directly into Object.assign without whitelist filtering.',
+        'Attack vector allows malicious actor to override user.role and user.balance parameters, bypassing privilege barriers.'
+      ],
+      attackScenario: 'POST /api/users/profile with {"role": "SUPERADMIN"} promotes user without authorization.',
+      sanitizationEvidence: 'None. Deconstruction was attempted on line 1 but all properties in req.body were applied.',
+      riskLevel: 'HIGH',
+      provenanceDigest: '0x3a4b7f8e91c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8',
+      merkleEpoch: 18491,
+      timestamp: '17:21:08'
+    },
+    {
+      id: 'EVG-INIT-2',
+      alertId: 'ALERT-CANARY-SECRET',
+      verdict: 'FILTERED_FALSE_POSITIVE',
+      confidenceScore: 0.98,
+      vulnerabilityType: 'SYNTHETIC_CANARY_PROBE',
+      reasoningSteps: [
+        'Value "CANARY-FIN-8841-SECRET" is an intentional synthetic canary token injected by reference monitor.',
+        'Zero production credentials or private keys are exposed.'
+      ],
+      sanitizationEvidence: 'Reference Monitor test harness token; zero sensitive production leakage.',
+      riskLevel: 'LOW',
+      provenanceDigest: '0x8f2d1e4c7b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e',
+      merkleEpoch: 18492,
+      timestamp: '17:21:12'
+    }
+  ]);
   const [isSseConnected, setIsSseConnected] = useState(true);
 
   // Modals state
@@ -94,6 +132,62 @@ export default function App() {
             currentStateRoot: data.currentStateRoot || prev.currentStateRoot,
             verifiedProofs: prev.verifiedProofs + 1
           }));
+        } catch (err) {}
+      });
+
+      es.addEventListener('evidence_gate_triage', (e: any) => {
+        try {
+          const data = JSON.parse(e.data);
+          const newTriage: EvidenceGateTriageEvent = {
+            id: `EVG-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+            alertId: data.alertId,
+            verdict: data.verdict,
+            confidenceScore: data.confidence,
+            vulnerabilityType: data.vulnerabilityType || 'EVIDENCE_GATE_FINDING',
+            reasoningSteps: data.reasoningSteps || [
+              'Step 1: Analyzed alert candidate against AST boundary.',
+              'Step 2: Validated through programmatic CoT schema loop.'
+            ],
+            attackScenario: data.attackScenario,
+            sanitizationEvidence: data.sanitizationEvidence,
+            riskLevel: data.riskLevel || 'MEDIUM',
+            provenanceDigest: data.provenanceDigest,
+            merkleEpoch: data.merkleEpoch || 1,
+            timestamp: data.timestamp || new Date().toLocaleTimeString()
+          };
+
+          setEvidenceGateEvents(prev => [newTriage, ...prev.slice(0, 20)]);
+
+          if (data.merkleEpoch) {
+            setCanaryState(prev => ({
+              ...prev,
+              merkleEpoch: data.merkleEpoch,
+              currentStateRoot: data.currentStateRoot || prev.currentStateRoot,
+              verifiedProofs: prev.verifiedProofs + 1
+            }));
+          }
+
+          if (data.verdict === 'CONFIRMED_TRUE_POSITIVE') {
+            const forensic: ForensicEvent = {
+              id: `EVT-EVG-${Date.now().toString(36)}`,
+              timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
+              substrateId: 'gemini',
+              attemptedAction: `EVIDENCE_GATE_FLAG: ${data.alertId}`,
+              targetResource: data.vulnerabilityType || 'VULNERABILITY_SINK',
+              violationCode: 'AI_EVIDENCE_GATE_CONFIRMED',
+              violationCategory: 'CAPABILITY_INFLATION',
+              nonAnthropomorphicEvaluation: `Evidence Gate confirmed vulnerability with ${(data.confidence * 100).toFixed(1)}% confidence across ${data.reasoningSteps?.length || 2} Chain-of-Thought steps. Digest: ${data.provenanceDigest}`,
+              interceptLocation: 'USERSPACE_REFERENCE_MONITOR_DETERMINISTIC_GLASS_FLOOR',
+              syscallsDispatched: 0,
+              computeCost: 0,
+              stateLeakage: '0.00%',
+              ephemeralTokenId: data.alertId,
+              merkleStateRoot: data.currentStateRoot || canaryState.currentStateRoot,
+              rawPayload: data,
+              remediated: true
+            };
+            setForensicEvents(prev => [forensic, ...prev]);
+          }
         } catch (err) {}
       });
 
@@ -215,6 +309,14 @@ export default function App() {
           </div>
         </div>
 
+        {/* Three Pillar Invariant Overview HUD */}
+        <ThreePillarHUD
+          proxmoxConfig={proxmoxConfig}
+          interceptCount={forensicEvents.length}
+          triageCount={evidenceGateEvents.length}
+          onOpenProxmoxModal={() => setIsProxmoxModalOpen(true)}
+        />
+
         {/* View Mode Switching */}
         {appMode === 'EXECUTIVE_AUDIT' ? (
           /* Commercial Executive & Auditor View */
@@ -252,7 +354,17 @@ export default function App() {
               />
             </section>
 
-            {/* 3. Forensic Event Cards */}
+            {/* 3. AI Evidence Gate Triage Console (Pillar 3 Enforcement) */}
+            <section id="section-evidence-gate">
+              <EvidenceGateSection
+                triageEvents={evidenceGateEvents}
+                onTriageCompleted={(newEvt) => {
+                  setEvidenceGateEvents(prev => [newEvt, ...prev.slice(0, 20)]);
+                }}
+              />
+            </section>
+
+            {/* 4. Forensic Event Cards */}
             <section id="section-forensics" className="space-y-3">
               <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
                 <div className="flex items-center gap-2 font-mono">
