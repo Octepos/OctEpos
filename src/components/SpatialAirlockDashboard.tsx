@@ -44,6 +44,22 @@ interface SpatialAirlockDashboardProps {
 
 type ExecutionStage = 'IDLE' | 'SPAWNING' | 'EVALUATING' | 'INTERCEPT_TRAP' | 'TEARDOWN_PURGE' | 'STATE_COMMITTED';
 
+export interface UnauthorizedAttempt {
+  action: string;
+  target: string;
+  category: 'LEDGER_MUTATION' | 'UNMETERED_API_SPEND' | 'UNAUTHORIZED_EXTERNAL_COMM' | 'VFS_ISOLATION';
+  rule: string;
+  capitalProtected: string;
+}
+
+export interface SurvivingArtifact {
+  fileName: string;
+  fileType: 'PDF' | 'EXCEL' | 'JSON';
+  sha256: string;
+  summary: string;
+  pureData: Record<string, string | number | boolean>;
+}
+
 interface IntentPreset {
   id: string;
   title: string;
@@ -53,20 +69,8 @@ interface IntentPreset {
   substrateName: string;
   promptIntent: string;
   dynamicCapabilities: string[];
-  unauthorizedAttempt: {
-    action: string;
-    target: string;
-    category: string;
-    rule: string;
-    capitalProtected: string;
-  };
-  survivingArtifact: {
-    fileName: string;
-    fileType: 'PDF' | 'EXCEL' | 'JSON';
-    sha256: string;
-    summary: string;
-    pureData: Record<string, any>;
-  };
+  unauthorizedAttempt: UnauthorizedAttempt;
+  survivingArtifact: SurvivingArtifact;
 }
 
 const INTENT_PRESETS: IntentPreset[] = [
@@ -158,7 +162,7 @@ const INTENT_PRESETS: IntentPreset[] = [
     unauthorizedAttempt: {
       action: 'SYS_OPEN /etc/shadow (Flags: O_RDONLY)',
       target: 'Host Linux File System Root',
-      category: 'VFS_ESCAPEMENT',
+      category: 'VFS_ISOLATION',
       rule: 'RULE_VFS_SANDBOX_STRICT (Container Isolation)',
       capitalProtected: 'Host root integrity attested. 0 bytes credential leakage.'
     },
@@ -192,12 +196,12 @@ export const SpatialAirlockDashboard: React.FC<SpatialAirlockDashboardProps> = (
   const [showCustomInput, setShowCustomInput] = useState<boolean>(false);
   const [activeHandPid, setActiveHandPid] = useState<number | null>(null);
   const [activeTtl, setActiveTtl] = useState<number>(60);
-  const [interceptDetail, setInterceptDetail] = useState<any>(null);
-  const [verifiedArtifacts, setVerifiedArtifacts] = useState<any[]>([
+  const [interceptDetail, setInterceptDetail] = useState<UnauthorizedAttempt | null>(null);
+  const [verifiedArtifacts, setVerifiedArtifacts] = useState<SurvivingArtifact[]>([
     INTENT_PRESETS[0].survivingArtifact,
     INTENT_PRESETS[1].survivingArtifact
   ]);
-  const [inspectingArtifact, setInspectingArtifact] = useState<any | null>(null);
+  const [inspectingArtifact, setInspectingArtifact] = useState<SurvivingArtifact | null>(null);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [isGaugeExpanded, setIsGaugeExpanded] = useState<boolean>(true);
 
@@ -205,13 +209,15 @@ export const SpatialAirlockDashboard: React.FC<SpatialAirlockDashboardProps> = (
 
   // TTL countdown when hand is spawned
   useEffect(() => {
-    let timer: any;
+    let timer: ReturnType<typeof setInterval> | null = null;
     if (executionStage === 'SPAWNING' || executionStage === 'EVALUATING') {
       timer = setInterval(() => {
         setActiveTtl(prev => (prev > 1 ? prev - 1 : 1));
       }, 1000);
     }
-    return () => clearInterval(timer);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
   }, [executionStage]);
 
   const handleLaunchExecution = async () => {
@@ -236,6 +242,32 @@ export const SpatialAirlockDashboard: React.FC<SpatialAirlockDashboardProps> = (
     setExecutionStage('INTERCEPT_TRAP');
     setInterceptDetail(activePreset.unauthorizedAttempt);
 
+    // Call backend GlassFloorInterceptor via RFC 8785 evaluated API
+    let provenanceHash = activePreset.survivingArtifact.sha256;
+    try {
+      const response = await fetch('/api/interceptor/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: activePreset.unauthorizedAttempt.action,
+          target: activePreset.unauthorizedAttempt.target,
+          parameters: {
+            client: activePreset.clientOrProject,
+            domain: activePreset.domain,
+            substrate: activePreset.substrateId
+          },
+          capabilities: activePreset.dynamicCapabilities
+        })
+      });
+
+      const result = await response.json();
+      if (result.provenanceAuditHash) {
+        provenanceHash = '0x' + result.provenanceAuditHash;
+      }
+    } catch {
+      // Offline / sandboxed fallback
+    }
+
     // Log to policy decisions
     const newDecision: PolicyDecision = {
       id: `POL-AIRLOCK-${Date.now()}`,
@@ -249,7 +281,7 @@ export const SpatialAirlockDashboard: React.FC<SpatialAirlockDashboardProps> = (
       stateIntegrity: '100% Unaltered (SHA-256 Verified)',
       dispatchedSyscalls: 0,
       substrate: activePreset.substrateId,
-      category: activePreset.unauthorizedAttempt.category as any
+      category: activePreset.unauthorizedAttempt.category
     };
     onLogPolicyDecision(newDecision);
 
@@ -262,12 +294,15 @@ export const SpatialAirlockDashboard: React.FC<SpatialAirlockDashboardProps> = (
     setExecutionStage('STATE_COMMITTED');
     setActiveHandPid(null);
 
-    // Add artifact to verified list if not already present
+    // Add artifact to verified list with verified provenance digest
+    const updatedArtifact: SurvivingArtifact = {
+      ...activePreset.survivingArtifact,
+      sha256: provenanceHash
+    };
+
     setVerifiedArtifacts(prev => {
-      if (prev.some(a => a.fileName === activePreset.survivingArtifact.fileName)) {
-        return prev;
-      }
-      return [activePreset.survivingArtifact, ...prev];
+      const filtered = prev.filter(a => a.fileName !== updatedArtifact.fileName);
+      return [updatedArtifact, ...filtered];
     });
   };
 
@@ -283,7 +318,7 @@ export const SpatialAirlockDashboard: React.FC<SpatialAirlockDashboardProps> = (
     setTimeout(() => setCopiedHash(null), 2000);
   };
 
-  const handleDownloadArtifact = (artifact: any) => {
+  const handleDownloadArtifact = (artifact: SurvivingArtifact) => {
     const content = JSON.stringify(artifact.pureData, null, 2);
     const blob = new Blob([content], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
