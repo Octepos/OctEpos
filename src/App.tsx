@@ -47,6 +47,8 @@ import { ThreePillarHUD } from './components/ThreePillarHUD';
 import { EvidenceGateSection } from './components/EvidenceGateSection';
 import { DynamicPolicyLeaseSection } from './components/DynamicPolicyLeaseSection';
 import { MerkleProofVerificationSection } from './components/MerkleProofVerificationSection';
+import { IngestionHubSection } from './components/IngestionHubSection';
+import { TenantMeteringSection } from './components/TenantMeteringSection';
 
 export default function App() {
   const [appMode, setAppMode] = useState<AppMode>('EXECUTIVE_AUDIT');
@@ -366,7 +368,25 @@ export default function App() {
               <MerkleProofVerificationSection />
             </section>
 
-            {/* 5. AI Evidence Gate Triage Console (Pillar 3 Enforcement) */}
+            {/* 5. Tenant Identity & Capital Share Metering API (Pillar 4 Monetization) */}
+            <section id="section-tenant-metering">
+              <TenantMeteringSection />
+            </section>
+
+            {/* 6. SIEM & CI/CD Ingestion Gateway (GitHub / Datadog / Splunk Webhooks) */}
+            <section id="section-ingestion-gateway">
+              <IngestionHubSection
+                onWebhookProcessed={() => {
+                  setCanaryState(prev => ({
+                    ...prev,
+                    merkleEpoch: prev.merkleEpoch + 1,
+                    verifiedProofs: prev.verifiedProofs + 1
+                  }));
+                }}
+              />
+            </section>
+
+            {/* 7. AI Evidence Gate Triage Console (Pillar 3 Enforcement) */}
             <section id="section-evidence-gate">
               <EvidenceGateSection
                 triageEvents={evidenceGateEvents}

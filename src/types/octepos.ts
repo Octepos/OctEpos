@@ -336,4 +336,64 @@ export interface EpochAttestationConsensus {
   byzantineFaultToleranceVerified: boolean;
 }
 
+// -------------------------------------------------------------
+// Tenant Identity, Capabilities & Capital Share Metering Types
+// -------------------------------------------------------------
+
+export type SubscriptionTier = 'COMMUNITY_FREE' | 'GROWTH_METERED' | 'SOVEREIGN_ENTERPRISE';
+
+export type TenantCapability = 
+  | 'CAP_INGEST_WEBHOOKS'          // Submit raw alerts from GitHub/Datadog/SIEM
+  | 'CAP_EVIDENCE_GATE_TRIAGE'     // Run CoT AI Evidence Gate triage
+  | 'CAP_MERKLE_STATE_ATTESTATION' // Sign & verify Merkle state epoch roots
+  | 'CAP_PROXMOX_CLUSTER_DISPATCH' // Dispatch workloads to local Proxmox substrate
+  | 'CAP_AIRGAP_ENCLAVE_CONTROL';  // Issue dynamic policy leases in zero-egress enclaves
+
+export interface TenantIdentity {
+  readonly tenantId: string;
+  readonly orgName: string;
+  readonly tier: SubscriptionTier;
+  readonly capabilities: readonly TenantCapability[];
+  readonly billingCurrency: 'NZD' | 'USD';
+  readonly unitCostPerAlertNzd: number; // e.g. 0.025 NZD
+  readonly rateLimitRps: number;        // e.g. 100 RPS burst cap
+  readonly keyHash: string;             // Salted SHA-256 hash of API key
+  readonly isSuspended: boolean;
+  readonly createdAt: number;
+}
+
+export interface TenantUsageState {
+  readonly tenantId: string;
+  availableCredits: number;
+  totalTriagedCount: number;
+  unbilledAccrualNzd: number;
+  lastActiveTimestamp: number;
+  lastFlushedTimestamp: number;
+}
+
+export type QuotaErrorCode = 
+  | 'UNAUTHORIZED_KEY'
+  | 'CAPABILITY_MISSING'
+  | 'QUOTA_EXHAUSTED'
+  | 'RATE_LIMITED'
+  | 'TENANT_SUSPENDED';
+
+export interface TenantQuotaResult {
+  readonly authorized: boolean;
+  readonly tenantId?: string;
+  readonly tier?: SubscriptionTier;
+  readonly remainingCredits?: number;
+  readonly costNzd?: number;
+  readonly errorCode?: QuotaErrorCode;
+  readonly message?: string;
+  readonly evaluationTimeMs?: number;
+}
+
+export interface TenantApiKeyIssuance {
+  readonly rawApiKey: string;
+  readonly tenant: TenantIdentity;
+  readonly initialCredits: number;
+}
+
+
 

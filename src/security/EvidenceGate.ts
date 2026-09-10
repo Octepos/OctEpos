@@ -6,7 +6,7 @@ export type TriageSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export interface EvidenceGateCandidateAlert {
   alertId: string;
-  sourceTool: 'SAST' | 'COROSYNC_MONITOR' | 'REFERENCE_MONITOR';
+  sourceTool: 'SAST' | 'COROSYNC_MONITOR' | 'REFERENCE_MONITOR' | 'GITHUB_CODEQL' | 'DATADOG_MONITOR' | 'SPLUNK_SIEM' | 'GENERIC_WEBHOOK';
   ruleId: string;
   sourcePath: string;
   codeSnippet: string;
