@@ -24,6 +24,7 @@ import { PolicyDecisionLog } from './PolicyDecisionLog';
 import { CapabilityAllocationMatrix } from './CapabilityAllocationMatrix';
 import { AuditorStateProof } from './AuditorStateProof';
 import { GlassFloorTelemetryFeed } from './GlassFloorTelemetryFeed';
+import { EnterpriseComplianceDashboard } from './EnterpriseComplianceDashboard';
 
 interface CommercialExecutiveViewProps {
   canaryState: CanaryState;
@@ -48,7 +49,7 @@ export const CommercialExecutiveView: React.FC<CommercialExecutiveViewProps> = (
   onOpenCloudRunPerimeter,
   onSelectSubstrate
 }) => {
-  const [activeTab, setActiveTab] = useState<'AIRLOCK' | 'TELEMETRY' | 'WORKFLOWS' | 'DECISIONS' | 'AUDITOR'>('AIRLOCK');
+  const [activeTab, setActiveTab] = useState<'AIRLOCK' | 'COMPLIANCE' | 'TELEMETRY' | 'WORKFLOWS' | 'DECISIONS' | 'AUDITOR'>('AIRLOCK');
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -56,7 +57,8 @@ export const CommercialExecutiveView: React.FC<CommercialExecutiveViewProps> = (
       <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
         <div className="flex items-center gap-2 font-mono text-xs overflow-x-auto">
           {[
-            { id: 'AIRLOCK', label: 'Spatial Airlock Console (Top/Mid/Bottom)' },
+            { id: 'AIRLOCK', label: 'Spatial Airlock Console' },
+            { id: 'COMPLIANCE', label: 'SOC 2 & ISO 27001 Compliance Matrix' },
             { id: 'TELEMETRY', label: 'Glass Floor Syscall Logs' },
             { id: 'WORKFLOWS', label: 'Enterprise Case Studies' },
             { id: 'DECISIONS', label: `Policy Decisions (${policyDecisions.length})` },
@@ -93,6 +95,18 @@ export const CommercialExecutiveView: React.FC<CommercialExecutiveViewProps> = (
             onOpenPolicyManager={onOpenPolicyManager}
             onOpenArchitectureExplorer={onOpenArchitectureExplorer}
             onSelectSubstrate={onSelectSubstrate}
+          />
+        </section>
+      )}
+
+      {/* Section: Enterprise Compliance Mapping & Audit Trail Exports (SOC 2 & ISO 27001) */}
+      {activeTab === 'COMPLIANCE' && (
+        <section id="enterprise-compliance-matrix">
+          <EnterpriseComplianceDashboard
+            canaryState={canaryState}
+            policyDecisions={policyDecisions}
+            onOpenCertificateModal={onOpenCertificateModal}
+            defaultRole="ENTERPRISE_ARCHITECT"
           />
         </section>
       )}

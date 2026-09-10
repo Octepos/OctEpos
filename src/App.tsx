@@ -49,6 +49,7 @@ import { DynamicPolicyLeaseSection } from './components/DynamicPolicyLeaseSectio
 import { MerkleProofVerificationSection } from './components/MerkleProofVerificationSection';
 import { IngestionHubSection } from './components/IngestionHubSection';
 import { TenantMeteringSection } from './components/TenantMeteringSection';
+import { EnterpriseComplianceDashboard } from './components/EnterpriseComplianceDashboard';
 
 export default function App() {
   const [appMode, setAppMode] = useState<AppMode>('EXECUTIVE_AUDIT');
@@ -393,6 +394,16 @@ export default function App() {
                 onTriageCompleted={(newEvt) => {
                   setEvidenceGateEvents(prev => [newEvt, ...prev.slice(0, 20)]);
                 }}
+              />
+            </section>
+
+            {/* 8. Enterprise Compliance Mapping & Audit-Trail Export Engine (SOC 2 / ISO 27001) */}
+            <section id="section-compliance-matrix">
+              <EnterpriseComplianceDashboard
+                canaryState={canaryState}
+                policyDecisions={policyDecisions}
+                onOpenCertificateModal={() => setIsAuditCertificateModalOpen(true)}
+                defaultRole="MLOPS_ENGINEER"
               />
             </section>
 

@@ -193,6 +193,18 @@ export const TopNav: React.FC<TopNavProps> = ({
           ) : (
             <>
               <button
+                onClick={() => {
+                  const el = document.getElementById('section-compliance-matrix');
+                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="hidden md:flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-3 py-2 text-xs font-mono text-emerald-200 hover:bg-emerald-900/50 hover:text-white transition-colors"
+                title="SOC 2 & ISO 27001 Compliance Matrix & Audit Exports"
+              >
+                <FileCheck className="h-3.5 w-3.5 text-emerald-400" />
+                <span>SOC 2 & ISO Matrix</span>
+              </button>
+
+              <button
                 onClick={onOpenEpistemicGuide}
                 className="hidden sm:flex items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-medium text-neutral-300 hover:border-neutral-700 hover:text-white transition-colors"
                 title="Non-Anthropomorphic Epistemic Principles"
