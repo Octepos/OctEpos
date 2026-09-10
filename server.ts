@@ -13,8 +13,13 @@ import { MerkleProofEngine, StateLeaf, NodeAttestationSignature } from './src/se
 import { IngestionAdapterEngine, IngestedWebhookEvent, IngestionProvider } from './src/security/IngestionAdapters';
 import { tenantManager } from './src/security/TenantIdentityManager';
 import { TenantCapability } from './src/types/octepos';
+import { SecurityConfig } from './src/security/SecurityConfig';
+import { deterministicPolicy } from './src/security/DeterministicEvidencePolicy';
 
 dotenv.config();
+
+// Enforce fail-closed secrets validation before binding or initialization
+SecurityConfig.assertProductionInvariants();
 
 const app = express();
 const PORT = 3000;
@@ -528,8 +533,6 @@ app.post('/api/merkle/attest-epoch', (req: Request, res: Response) => {
 // -------------------------------------------------------------
 // 1f. SIEM & CI/CD Ingestion Webhooks & Normalizer Layer
 // -------------------------------------------------------------
-const DEFAULT_WEBHOOK_SECRET = 'octepos-devsecops-webhook-secret-994';
-const DEFAULT_WEBHOOK_TOKEN = 'dd-token-octepos-enclave-881';
 const recentWebhooks: IngestedWebhookEvent[] = [];
 
 async function processWebhookIngest(
@@ -597,10 +600,43 @@ async function processWebhookIngest(
 
   const triageResult = evidenceGate.validate(rawLlmOutput);
 
-  // 3. Determine outbound dispatch action
-  const outboundDispatch = IngestionAdapterEngine.determineOutboundDispatch(provider, normalizedAlert, triageResult);
+  // 3. Evaluate Deterministic Policy Layer
+  // The LLM output is evidence; this deterministic layer owns the final operational decision.
+  const policyDecision = deterministicPolicy.evaluate(normalizedAlert, triageResult);
 
-  // 4. Update Merkle state root
+  // 4. Map policy decision to concrete outbound dispatch
+  let outboundDispatch: IngestedWebhookEvent['outboundDispatch'];
+  if (policyDecision.authorizedAction === 'DISPATCH_PR_BLOCK' && policyDecision.isEnforced) {
+    outboundDispatch = {
+      action: 'GITHUB_PR_ANNOTATION',
+      status: 'DISPATCHED',
+      summary: `[ENFORCED] ${policyDecision.reasoning}`,
+      targetChannel: 'github/pull-request-check'
+    };
+  } else if (policyDecision.authorizedAction === 'SUPPRESS_FALSE_POSITIVE') {
+    outboundDispatch = {
+      action: 'DROPPED_FALSE_POSITIVE',
+      status: 'SUPPRESSED',
+      summary: `[SUPPRESSED] ${policyDecision.reasoning}`,
+      targetChannel: 'notification-broker'
+    };
+  } else if (policyDecision.authorizedAction === 'REJECT_SUSPICIOUS_PAYLOAD') {
+    outboundDispatch = {
+      action: 'PAGERDUTY_ALERT',
+      status: 'DISPATCHED',
+      summary: `[SUSPICIOUS] ${policyDecision.reasoning}`,
+      targetChannel: 'forensic-security-enclave'
+    };
+  } else {
+    outboundDispatch = {
+      action: 'WEBHOOK_CALLBACK',
+      status: 'DISPATCHED',
+      summary: `[ESCALATED] ${policyDecision.reasoning}`,
+      targetChannel: 'soc-operations-queue'
+    };
+  }
+
+  // 5. Update Merkle state root
   const newLeaf: StateLeaf = {
     leafId: `LEAF-${normalizedAlert.alertId}`,
     leafType: 'EVIDENCE_GATE_VERDICT',
@@ -608,7 +644,9 @@ async function processWebhookIngest(
       provider,
       alertId: normalizedAlert.alertId,
       verdict: triageResult.verdict,
-      provenanceDigest: triageResult.provenanceDigest
+      provenanceDigest: triageResult.provenanceDigest,
+      policyRule: policyDecision.policyRuleId,
+      policyEnforced: policyDecision.isEnforced
     },
     timestamp: Date.now()
   };
@@ -639,6 +677,8 @@ async function processWebhookIngest(
     ruleId: normalizedAlert.ruleId,
     verdict: triageResult.verdict,
     confidence: triageResult.confidenceScore,
+    policyAction: policyDecision.authorizedAction,
+    policyRule: policyDecision.policyRuleId,
     outboundAction: outboundDispatch.action,
     merkleEpoch,
     stateRoot: newRoot,
@@ -659,42 +699,98 @@ async function processWebhookIngest(
   return eventRecord;
 }
 
-// Helper: Evaluates Tenant API Key & Burns 1 Quota Credit Atomically
-function authenticateAndBurnTenant(req: Request, capability: TenantCapability = 'CAP_INGEST_WEBHOOKS') {
+// Helper: Extracts delivery ID and requests atomic admission from durable ledger authority
+function extractDeliveryAndAuth(req: Request, provider: IngestionProvider) {
+  let deliveryId: string | undefined;
+  if (provider === 'GITHUB') {
+    deliveryId = (req.headers['x-github-delivery'] || req.headers['x-request-id']) as string | undefined;
+  } else if (provider === 'DATADOG') {
+    deliveryId = (req.headers['x-datadog-delivery-id'] || req.body?.id || req.headers['x-request-id']) as string | undefined;
+  } else {
+    deliveryId = (req.headers['x-delivery-id'] || req.headers['x-request-id']) as string | undefined;
+  }
+
+  if (!deliveryId) {
+    deliveryId = `del-${crypto.randomUUID()}`;
+  }
+
   const authHeader = (req.headers['authorization'] || req.headers['x-octepos-api-key']) as string | undefined;
-  // Fallback to active demo tenant key if not provided (for seamless dashboard exploration)
   const fallbackKey = tenantManager.getAllTenantsWithUsage()[0]?.demoApiKey;
   const keyToUse = authHeader || fallbackKey;
-  return tenantManager.evaluateAndBurnQuota(keyToUse, capability);
+  const requestId = (req.headers['x-request-id'] || `req-${crypto.randomUUID()}`) as string;
+
+  return { deliveryId, keyToUse, requestId };
 }
 
 // GitHub Actions / CodeQL / Secret Scanning Webhook Ingress
 app.post('/api/webhooks/github', async (req: Request, res: Response) => {
-  const quota = authenticateAndBurnTenant(req, 'CAP_INGEST_WEBHOOKS');
-  if (!quota.authorized) {
-    const statusCode = quota.errorCode === 'QUOTA_EXHAUSTED' ? 402 : quota.errorCode === 'CAPABILITY_MISSING' ? 403 : 401;
-    return res.status(statusCode).json({
-      success: false,
-      error: quota.errorCode,
-      message: quota.message,
-      tenantId: quota.tenantId,
-      tier: quota.tier
-    });
-  }
-
-  const signatureHeader = req.headers['x-hub-signature-256'] as string | undefined;
-  const secret = process.env.OCTEPOS_WEBHOOK_SECRET || DEFAULT_WEBHOOK_SECRET;
-
-  const rawBodyStr = JSON.stringify(req.body);
-  const signatureVerified = signatureHeader
-    ? IngestionAdapterEngine.verifyGitHubHmac(rawBodyStr, signatureHeader, secret)
-    : false;
-
   try {
+    const { deliveryId, keyToUse, requestId } = extractDeliveryAndAuth(req, 'GITHUB');
+
+    // Atomic Admission & Quota Evaluation BEFORE downstream processing
+    const quota = tenantManager.evaluateAndBurnQuota(
+      keyToUse,
+      'CAP_INGEST_WEBHOOKS',
+      deliveryId,
+      requestId
+    );
+
+    if (!quota.authorized) {
+      const statusCode = quota.errorCode === 'QUOTA_EXHAUSTED' ? 402 : quota.errorCode === 'CAPABILITY_MISSING' ? 403 : 401;
+      return res.status(statusCode).json({
+        success: false,
+        error: quota.errorCode,
+        message: quota.message,
+        tenantId: quota.tenantId,
+        tier: quota.tier
+      });
+    }
+
+    // Idempotency: Duplicate delivery returns prior established result with 0 additional charge
+    if (quota.duplicate) {
+      let cachedVerdict: any = null;
+      if (quota.cachedVerdictJson) {
+        try {
+          cachedVerdict = JSON.parse(quota.cachedVerdictJson);
+        } catch {}
+      }
+      return res.json({
+        success: true,
+        duplicateDelivery: true,
+        message: 'Duplicate provider delivery acknowledged. Zero additional quota charged.',
+        deliveryId,
+        tenant: {
+          tenantId: quota.tenantId,
+          tier: quota.tier,
+          remainingCredits: quota.remainingCredits,
+          costNzd: 0
+        },
+        cachedVerdict
+      });
+    }
+
+    const signatureHeader = req.headers['x-hub-signature-256'] as string | undefined;
+    const secret = SecurityConfig.getWebhookSecret();
+
+    const rawBodyStr = JSON.stringify(req.body);
+    const signatureVerified = signatureHeader
+      ? IngestionAdapterEngine.verifyGitHubHmac(rawBodyStr, signatureHeader, secret)
+      : false;
+
     const event = await processWebhookIngest('GITHUB', req.body, signatureVerified, signatureHeader, quota);
     const prComment = event.triageResult
       ? IngestionAdapterEngine.formatGitHubPRComment(event.normalizedAlert, event.triageResult)
       : undefined;
+
+    // Cache established verdict under durable idempotency anchor
+    if (quota.tenantId) {
+      tenantManager.updateIdempotencyResult(quota.tenantId, deliveryId, {
+        webhookId: event.webhookId,
+        normalizedAlert: event.normalizedAlert,
+        triageResult: event.triageResult,
+        outboundDispatch: event.outboundDispatch
+      });
+    }
 
     return res.json({
       success: true,
@@ -719,27 +815,65 @@ app.post('/api/webhooks/github', async (req: Request, res: Response) => {
 
 // Datadog Alert / Security Signal Webhook Ingress
 app.post('/api/webhooks/datadog', async (req: Request, res: Response) => {
-  const quota = authenticateAndBurnTenant(req, 'CAP_INGEST_WEBHOOKS');
-  if (!quota.authorized) {
-    const statusCode = quota.errorCode === 'QUOTA_EXHAUSTED' ? 402 : quota.errorCode === 'CAPABILITY_MISSING' ? 403 : 401;
-    return res.status(statusCode).json({
-      success: false,
-      error: quota.errorCode,
-      message: quota.message,
-      tenantId: quota.tenantId,
-      tier: quota.tier
-    });
-  }
-
-  const tokenHeader = (req.headers['x-datadog-webhook-token'] || req.headers['authorization']) as string | undefined;
-  const expectedToken = process.env.OCTEPOS_DATADOG_TOKEN || DEFAULT_WEBHOOK_TOKEN;
-
-  const signatureVerified = tokenHeader
-    ? IngestionAdapterEngine.verifyToken(tokenHeader, expectedToken)
-    : false;
-
   try {
+    const { deliveryId, keyToUse, requestId } = extractDeliveryAndAuth(req, 'DATADOG');
+
+    const quota = tenantManager.evaluateAndBurnQuota(
+      keyToUse,
+      'CAP_INGEST_WEBHOOKS',
+      deliveryId,
+      requestId
+    );
+
+    if (!quota.authorized) {
+      const statusCode = quota.errorCode === 'QUOTA_EXHAUSTED' ? 402 : quota.errorCode === 'CAPABILITY_MISSING' ? 403 : 401;
+      return res.status(statusCode).json({
+        success: false,
+        error: quota.errorCode,
+        message: quota.message,
+        tenantId: quota.tenantId,
+        tier: quota.tier
+      });
+    }
+
+    if (quota.duplicate) {
+      let cachedVerdict: any = null;
+      if (quota.cachedVerdictJson) {
+        try { cachedVerdict = JSON.parse(quota.cachedVerdictJson); } catch {}
+      }
+      return res.json({
+        success: true,
+        duplicateDelivery: true,
+        message: 'Duplicate provider delivery acknowledged. Zero additional quota charged.',
+        deliveryId,
+        tenant: {
+          tenantId: quota.tenantId,
+          tier: quota.tier,
+          remainingCredits: quota.remainingCredits,
+          costNzd: 0
+        },
+        cachedVerdict
+      });
+    }
+
+    const tokenHeader = (req.headers['x-datadog-webhook-token'] || req.headers['authorization']) as string | undefined;
+    const expectedToken = SecurityConfig.getDatadogToken();
+
+    const signatureVerified = tokenHeader
+      ? IngestionAdapterEngine.verifyToken(tokenHeader, expectedToken)
+      : false;
+
     const event = await processWebhookIngest('DATADOG', req.body, signatureVerified, tokenHeader, quota);
+
+    if (quota.tenantId) {
+      tenantManager.updateIdempotencyResult(quota.tenantId, deliveryId, {
+        webhookId: event.webhookId,
+        normalizedAlert: event.normalizedAlert,
+        triageResult: event.triageResult,
+        outboundDispatch: event.outboundDispatch
+      });
+    }
+
     return res.json({
       success: true,
       webhookId: event.webhookId,
@@ -762,26 +896,49 @@ app.post('/api/webhooks/datadog', async (req: Request, res: Response) => {
 
 // Splunk / SIEM Webhook Ingress
 app.post('/api/webhooks/siem', async (req: Request, res: Response) => {
-  const quota = authenticateAndBurnTenant(req, 'CAP_INGEST_WEBHOOKS');
-  if (!quota.authorized) {
-    const statusCode = quota.errorCode === 'QUOTA_EXHAUSTED' ? 402 : quota.errorCode === 'CAPABILITY_MISSING' ? 403 : 401;
-    return res.status(statusCode).json({
-      success: false,
-      error: quota.errorCode,
-      message: quota.message,
-      tenantId: quota.tenantId,
-      tier: quota.tier
-    });
-  }
-
-  const tokenHeader = (req.headers['authorization'] || req.headers['x-siem-token']) as string | undefined;
-  const expectedToken = process.env.OCTEPOS_SIEM_TOKEN || DEFAULT_WEBHOOK_TOKEN;
-
-  const signatureVerified = tokenHeader
-    ? IngestionAdapterEngine.verifyToken(tokenHeader, expectedToken)
-    : false;
-
   try {
+    const { deliveryId, keyToUse, requestId } = extractDeliveryAndAuth(req, 'SPLUNK');
+
+    const quota = tenantManager.evaluateAndBurnQuota(
+      keyToUse,
+      'CAP_INGEST_WEBHOOKS',
+      deliveryId,
+      requestId
+    );
+
+    if (!quota.authorized) {
+      const statusCode = quota.errorCode === 'QUOTA_EXHAUSTED' ? 402 : quota.errorCode === 'CAPABILITY_MISSING' ? 403 : 401;
+      return res.status(statusCode).json({
+        success: false,
+        error: quota.errorCode,
+        message: quota.message,
+        tenantId: quota.tenantId,
+        tier: quota.tier
+      });
+    }
+
+    if (quota.duplicate) {
+      return res.json({
+        success: true,
+        duplicateDelivery: true,
+        message: 'Duplicate provider delivery acknowledged. Zero additional quota charged.',
+        deliveryId,
+        tenant: {
+          tenantId: quota.tenantId,
+          tier: quota.tier,
+          remainingCredits: quota.remainingCredits,
+          costNzd: 0
+        }
+      });
+    }
+
+    const tokenHeader = (req.headers['authorization'] || req.headers['x-siem-token']) as string | undefined;
+    const expectedToken = SecurityConfig.getDatadogToken();
+
+    const signatureVerified = tokenHeader
+      ? IngestionAdapterEngine.verifyToken(tokenHeader, expectedToken)
+      : false;
+
     const event = await processWebhookIngest('SPLUNK', req.body, signatureVerified, tokenHeader, quota);
     return res.json({
       success: true,
@@ -805,19 +962,42 @@ app.post('/api/webhooks/siem', async (req: Request, res: Response) => {
 
 // Generic Security Webhook Ingress
 app.post('/api/webhooks/generic', async (req: Request, res: Response) => {
-  const quota = authenticateAndBurnTenant(req, 'CAP_INGEST_WEBHOOKS');
-  if (!quota.authorized) {
-    const statusCode = quota.errorCode === 'QUOTA_EXHAUSTED' ? 402 : quota.errorCode === 'CAPABILITY_MISSING' ? 403 : 401;
-    return res.status(statusCode).json({
-      success: false,
-      error: quota.errorCode,
-      message: quota.message,
-      tenantId: quota.tenantId,
-      tier: quota.tier
-    });
-  }
-
   try {
+    const { deliveryId, keyToUse, requestId } = extractDeliveryAndAuth(req, 'GENERIC');
+
+    const quota = tenantManager.evaluateAndBurnQuota(
+      keyToUse,
+      'CAP_INGEST_WEBHOOKS',
+      deliveryId,
+      requestId
+    );
+
+    if (!quota.authorized) {
+      const statusCode = quota.errorCode === 'QUOTA_EXHAUSTED' ? 402 : quota.errorCode === 'CAPABILITY_MISSING' ? 403 : 401;
+      return res.status(statusCode).json({
+        success: false,
+        error: quota.errorCode,
+        message: quota.message,
+        tenantId: quota.tenantId,
+        tier: quota.tier
+      });
+    }
+
+    if (quota.duplicate) {
+      return res.json({
+        success: true,
+        duplicateDelivery: true,
+        message: 'Duplicate provider delivery acknowledged. Zero additional quota charged.',
+        deliveryId,
+        tenant: {
+          tenantId: quota.tenantId,
+          tier: quota.tier,
+          remainingCredits: quota.remainingCredits,
+          costNzd: 0
+        }
+      });
+    }
+
     const event = await processWebhookIngest('GENERIC', req.body, true, undefined, quota);
     return res.json({
       success: true,
@@ -859,6 +1039,16 @@ app.get('/api/tenants', (req: Request, res: Response) => {
   });
 });
 
+app.get('/api/tenants/ledger', (req: Request, res: Response) => {
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit || 50)));
+  const ledger = tenantManager.getLedgerStore().getRecentLedger(limit);
+  return res.json({
+    success: true,
+    ledger,
+    count: ledger.length
+  });
+});
+
 app.post('/api/tenants/issue-key', (req: Request, res: Response) => {
   const { orgName, tenantSlug, tier = 'GROWTH_METERED', initialCredits, unitCostPerAlertNzd } = req.body || {};
   if (!orgName || !tenantSlug) {
@@ -877,25 +1067,56 @@ app.post('/api/tenants/issue-key', (req: Request, res: Response) => {
   });
 });
 
+// Route top-up through durable accounting authority with explicit idempotency key
 app.post('/api/tenants/:id/topup', (req: Request, res: Response) => {
   const { id } = req.params;
-  const { credits = 1000 } = req.body || {};
-  const result = tenantManager.depositCredits(id, Number(credits));
+  const { credits = 1000, idempotencyKey, reason } = req.body || {};
+  const effectiveIdempotencyKey = idempotencyKey || (req.headers['x-idempotency-key'] as string) || `topup-${id}-${Date.now()}`;
+  const actor = (req.headers['x-actor'] as string) || 'console-operator';
+
+  const result = tenantManager.depositCredits(
+    id,
+    Number(credits),
+    effectiveIdempotencyKey,
+    actor
+  );
+
   if (!result.success) {
-    return res.status(404).json({ success: false, error: 'Tenant not found' });
+    return res.status(400).json({ success: false, error: result.message || 'Tenant not found or invalid credit amount' });
   }
-  broadcastSSE('quota_topup', { tenantId: id, newBalance: result.newBalance });
-  return res.json({ success: true, newBalance: result.newBalance });
+
+  broadcastSSE('quota_topup', {
+    tenantId: id,
+    newBalance: result.newBalance,
+    duplicate: result.duplicate
+  });
+
+  return res.json({
+    success: true,
+    newBalance: result.newBalance,
+    duplicate: result.duplicate
+  });
 });
 
+// Execute auditable, durable state transitions
 app.post('/api/tenants/:id/suspend', (req: Request, res: Response) => {
   const { id } = req.params;
-  const { suspended = true } = req.body || {};
-  const ok = tenantManager.setSuspension(id, Boolean(suspended));
+  const { suspended = true, reason } = req.body || {};
+  const actor = (req.headers['x-actor'] as string) || 'compliance-officer';
+  const targetState = Boolean(suspended) ? 'SUSPENDED' : 'ACTIVE';
+  const effectiveReason = reason || (Boolean(suspended) ? 'Suspended by admin action' : 'Reinstated by admin action');
+
+  const ok = tenantManager.transitionState(id, targetState, actor, effectiveReason);
   if (!ok) {
-    return res.status(404).json({ success: false, error: 'Tenant not found' });
+    return res.status(404).json({ success: false, error: 'Tenant not found or state transition failed' });
   }
-  return res.json({ success: true, tenantId: id, isSuspended: Boolean(suspended) });
+
+  return res.json({
+    success: true,
+    tenantId: id,
+    state: targetState,
+    isSuspended: Boolean(suspended)
+  });
 });
 
 

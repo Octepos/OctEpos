@@ -60,6 +60,33 @@ export const TenantMeteringSection: React.FC = () => {
     timestamp: string;
   } | null>(null);
 
+  const [ledgerEntries, setLedgerEntries] = useState<Array<{
+    eventId: string;
+    tenantId: string;
+    requestId: string;
+    providerEventId: string;
+    operation: string;
+    creditsConsumed: number;
+    unitPriceNzd: number;
+    currency: string;
+    balanceBefore: number;
+    balanceAfter: number;
+    timestamp: number;
+    status: string;
+  }>>([]);
+
+  const fetchLedger = async () => {
+    try {
+      const res = await fetch('/api/tenants/ledger?limit=10');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.ledger)) {
+        setLedgerEntries(data.ledger);
+      }
+    } catch (err) {
+      console.error('Failed to fetch ledger:', err);
+    }
+  };
+
   const fetchTenants = async () => {
     try {
       setIsLoading(true);
@@ -71,6 +98,7 @@ export const TenantMeteringSection: React.FC = () => {
           setSelectedTenantId(data.tenants[0].identity.tenantId);
         }
       }
+      fetchLedger();
     } catch (err) {
       console.error('Failed to fetch tenants:', err);
     } finally {
@@ -105,6 +133,7 @@ export const TenantMeteringSection: React.FC = () => {
             return t;
           })
         );
+        fetchLedger();
       } catch (err) {
         console.error('Failed parsing quota_burned SSE:', err);
       }
@@ -127,6 +156,7 @@ export const TenantMeteringSection: React.FC = () => {
             return t;
           })
         );
+        fetchLedger();
       } catch (err) {
         console.error('Failed parsing quota_topup SSE:', err);
       }
@@ -588,6 +618,81 @@ export const TenantMeteringSection: React.FC = () => {
                   );
                 })}
               </div>
+            </div>
+
+            {/* Authoritative Durable Ledger (SQLite ACID Persistence) */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 shadow-lg">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-cyan-400" />
+                  <h3 className="text-sm font-semibold text-white">Authoritative Accounting Ledger</h3>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/60">
+                    node:sqlite ACID WAL
+                  </span>
+                </div>
+                <button
+                  onClick={fetchLedger}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                  title="Refresh SQLite Ledger"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {ledgerEntries.length === 0 ? (
+                <div className="p-4 rounded-lg bg-slate-950/40 border border-slate-800/80 text-center text-xs text-slate-500">
+                  No accounting events committed yet. Ingest alerts or top-up balance to record ACID transactions.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-[11px] font-mono text-slate-400 uppercase">
+                        <th className="pb-2 font-semibold">Event ID</th>
+                        <th className="pb-2 font-semibold">Operation</th>
+                        <th className="pb-2 font-semibold">Credits</th>
+                        <th className="pb-2 font-semibold">Price (NZD)</th>
+                        <th className="pb-2 font-semibold">Balance</th>
+                        <th className="pb-2 font-semibold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50 font-mono text-[11px]">
+                      {ledgerEntries.map(entry => (
+                        <tr key={entry.eventId} className="hover:bg-slate-800/30 transition-colors">
+                          <td className="py-2.5 text-slate-300">
+                            <span className="text-cyan-400">{entry.eventId.slice(0, 16)}</span>...
+                          </td>
+                          <td className="py-2.5 text-slate-300">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">
+                              {entry.operation}
+                            </span>
+                          </td>
+                          <td className="py-2.5">
+                            {entry.creditsConsumed > 0 ? (
+                              <span className="text-amber-400 font-semibold">-{entry.creditsConsumed}</span>
+                            ) : (
+                              <span className="text-slate-500">0</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 text-slate-300">
+                            ${entry.unitPriceNzd.toFixed(3)}
+                          </td>
+                          <td className="py-2.5 text-slate-300">
+                            <span className="text-slate-400">{entry.balanceBefore}</span>
+                            <span className="text-slate-500 mx-1">→</span>
+                            <span className="text-emerald-400 font-semibold">{entry.balanceAfter}</span>
+                          </td>
+                          <td className="py-2.5">
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/60 text-[10px]">
+                              {entry.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </div>

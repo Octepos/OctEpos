@@ -342,6 +342,53 @@ export interface EpochAttestationConsensus {
 
 export type SubscriptionTier = 'COMMUNITY_FREE' | 'GROWTH_METERED' | 'SOVEREIGN_ENTERPRISE';
 
+export type TenantState = 'ACTIVE' | 'SUSPENDED' | 'DECOMMISSIONED';
+
+export interface TenantStateTransitionEvent {
+  readonly transitionId: string;
+  readonly tenantId: string;
+  readonly fromState: TenantState;
+  readonly toState: TenantState;
+  readonly actor: string;
+  readonly reason: string;
+  readonly timestamp: number;
+}
+
+export interface AccountingLedgerEntry {
+  readonly eventId: string;
+  readonly tenantId: string;
+  readonly requestId: string;
+  readonly providerEventId: string;
+  readonly operation: 'WEBHOOK_INGEST_TRIAGE' | 'TOP_UP_DEPOSIT' | 'ADMIN_ADJUSTMENT';
+  readonly creditsConsumed: number;
+  readonly unitPriceNzd: number;
+  readonly currency: 'NZD';
+  readonly balanceBefore: number;
+  readonly balanceAfter: number;
+  readonly timestamp: number;
+  readonly status: 'COMMITTED' | 'REVERTED';
+  readonly metadata: Record<string, unknown>;
+}
+
+export interface IdempotencyRecord {
+  readonly idempotencyKey: string;
+  readonly tenantId: string;
+  readonly status: 'RESERVED' | 'COMMITTED' | 'FAILED';
+  readonly accountingEventId?: string;
+  readonly cachedResultJson?: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+export interface DeterministicPolicyDecision {
+  readonly authorizedAction: 'DISPATCH_PR_BLOCK' | 'SUPPRESS_FALSE_POSITIVE' | 'ESCALATE_HUMAN_TRIAGE' | 'REJECT_SUSPICIOUS_PAYLOAD';
+  readonly policyRuleId: string;
+  readonly isEnforced: boolean;
+  readonly reasoning: string;
+  readonly deterministicDigest: string;
+  readonly timestamp: string;
+}
+
 export type TenantCapability = 
   | 'CAP_INGEST_WEBHOOKS'          // Submit raw alerts from GitHub/Datadog/SIEM
   | 'CAP_EVIDENCE_GATE_TRIAGE'     // Run CoT AI Evidence Gate triage
@@ -358,6 +405,7 @@ export interface TenantIdentity {
   readonly unitCostPerAlertNzd: number; // e.g. 0.025 NZD
   readonly rateLimitRps: number;        // e.g. 100 RPS burst cap
   readonly keyHash: string;             // Salted SHA-256 hash of API key
+  readonly state: TenantState;          // Formally tracked tenant state
   readonly isSuspended: boolean;
   readonly createdAt: number;
 }
