@@ -14,7 +14,8 @@ import {
   Code2,
   FileCheck,
   Lock,
-  Github
+  Github,
+  Workflow
 } from 'lucide-react';
 import { AppMode } from '../types/octepos';
 
@@ -29,6 +30,7 @@ interface TopNavProps {
   onOpenPublicRelease: () => void;
   onOpenCertificateModal?: () => void;
   onOpenCloudRunPerimeter?: () => void;
+  onOpenWorkflowLens?: () => void;
   isSseConnected?: boolean;
   activeTestRunning: boolean;
   forensicCount: number;
@@ -45,6 +47,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenPublicRelease,
   onOpenCertificateModal,
   onOpenCloudRunPerimeter,
+  onOpenWorkflowLens,
   isSseConnected = true,
   activeTestRunning,
   forensicCount,
@@ -150,9 +153,25 @@ export const TopNav: React.FC<TopNavProps> = ({
             title="Open Source Public Release Specification (README & SECURITY.md)"
           >
             <Github className="h-3.5 w-3.5 text-cyan-400" />
-            <span className="hidden xl:inline">Public Release (README & SECURITY.md)</span>
-            <span className="xl:hidden">Docs / Spec</span>
+            <span className="hidden xl:inline">Public Release</span>
+            <span className="xl:hidden">Docs</span>
           </button>
+
+          {/* AI Studio Workflow Lens & Spec Compiler (Clipboard MVP) - always accessible */}
+          {onOpenWorkflowLens && (
+            <button
+              id="btn-trigger-studio-lens"
+              onClick={onOpenWorkflowLens}
+              className="flex items-center gap-1.5 rounded-lg border border-cyan-400/60 bg-gradient-to-r from-cyan-950/90 via-neutral-900 to-cyan-950/60 px-3.5 py-2 font-mono text-xs font-bold uppercase tracking-wider text-cyan-200 hover:border-cyan-300 hover:text-white shadow-md transition-all group"
+              title="Open OCTEPOS Studio Lens & Spec Compiler (Clipboard MVP & Free Compute Harvester)"
+            >
+              <Workflow className="h-4 w-4 text-cyan-400 group-hover:scale-110 transition-transform" />
+              <span>Studio Lens</span>
+              <span className="hidden sm:inline rounded bg-cyan-950 border border-cyan-500/40 px-1 py-0.2 text-[9px] text-cyan-300">
+                CLIPBOARD MVP
+              </span>
+            </button>
+          )}
 
           {appMode === 'EXECUTIVE_AUDIT' ? (
             <>

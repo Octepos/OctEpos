@@ -11,7 +11,9 @@ import {
   ExternalLink, 
   Github, 
   Cloud, 
-  Briefcase 
+  Briefcase,
+  Workflow,
+  ArrowRight
 } from 'lucide-react';
 import { 
   INITIAL_SUBSTRATES, 
@@ -43,6 +45,7 @@ import { AdversarialTestModal } from './components/AdversarialTestModal';
 import { EpistemicPrincipleModal } from './components/EpistemicPrincipleModal';
 import { AuditCertificateModal } from './components/AuditCertificateModal';
 import { CloudRunPerimeterModal } from './components/CloudRunPerimeterModal';
+import { AIStudioWorkflowLensModal } from './components/AIStudioWorkflowLensModal';
 import { ThreePillarHUD } from './components/ThreePillarHUD';
 import { EvidenceGateSection } from './components/EvidenceGateSection';
 import { DynamicPolicyLeaseSection } from './components/DynamicPolicyLeaseSection';
@@ -105,6 +108,7 @@ export default function App() {
   const [isPublicReleaseModalOpen, setIsPublicReleaseModalOpen] = useState(false);
   const [isAuditCertificateModalOpen, setIsAuditCertificateModalOpen] = useState(false);
   const [isCloudRunModalOpen, setIsCloudRunModalOpen] = useState(false);
+  const [isWorkflowLensOpen, setIsWorkflowLensOpen] = useState(false);
   const [activeTestRunning, setActiveTestRunning] = useState(false);
 
   // Live Server-Sent Events (SSE) stream listener
@@ -277,6 +281,7 @@ export default function App() {
         onOpenPublicRelease={() => setIsPublicReleaseModalOpen(true)}
         onOpenCertificateModal={() => setIsAuditCertificateModalOpen(true)}
         onOpenCloudRunPerimeter={() => setIsCloudRunModalOpen(true)}
+        onOpenWorkflowLens={() => setIsWorkflowLensOpen(true)}
         isSseConnected={isSseConnected}
         activeTestRunning={activeTestRunning}
         forensicCount={forensicEvents.length}
@@ -284,6 +289,36 @@ export default function App() {
 
       {/* Main Cockpit Surface */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8">
+        {/* Banner: AI Studio Workflow Lens Quick-Launch (Clipboard MVP & Free Compute Harvester) */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3.5 rounded-xl border border-cyan-500/40 bg-gradient-to-r from-cyan-950/80 via-neutral-900/90 to-neutral-950 px-4 py-3 text-xs font-mono shadow-md">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-400/50 bg-cyan-950/70 text-cyan-300">
+              <Workflow className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-neutral-100 text-xs">
+                  OCTEPOS STUDIO LENS: CLIPBOARD MVP
+                </span>
+                <span className="rounded bg-cyan-950 border border-cyan-500/40 px-1.5 py-0.2 text-[10px] text-cyan-300 font-bold">
+                  $0.00 FREE COMPUTE HARVESTER
+                </span>
+              </div>
+              <p className="text-neutral-400 text-[11px] mt-0.5">
+                Compile vague objectives into rigid specs for Google AI Studio, then validate and commit tested artifacts to Merkle WAL.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setIsWorkflowLensOpen(true)}
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-cyan-400/70 bg-cyan-900/50 hover:bg-cyan-900/80 px-3.5 py-1.5 text-xs font-bold text-cyan-200 transition-all shadow-sm shrink-0"
+          >
+            <span>Open Studio Lens & Compiler</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
         {/* Banner Alert: Reference Monitor Status */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-xs font-mono">
           <div className="flex items-center gap-2.5">
@@ -522,6 +557,28 @@ export default function App() {
       <CloudRunPerimeterModal
         isOpen={isCloudRunModalOpen}
         onClose={() => setIsCloudRunModalOpen(false)}
+      />
+
+      <AIStudioWorkflowLensModal
+        isOpen={isWorkflowLensOpen}
+        onClose={() => setIsWorkflowLensOpen(false)}
+        onCommitLedgerReceipt={({ txHash, stateRoot }) => {
+          handleMerkleRootUpdated();
+          setPolicyDecisions(prev => [
+            {
+              id: `DEC-${Date.now()}`,
+              timestamp: new Date().toLocaleTimeString(),
+              substrateId: 'gemini',
+              targetResource: 'OCTEPOS_STUDIO_LENS_SPEC_COMPILER',
+              decision: 'PERMIT',
+              actionAttempted: 'STUDIO_CODE_VALIDATED_MERKLE_COMMIT',
+              evalLatencyMs: 0.84,
+              gasRefundUsd: 0.00,
+              proofHash: txHash
+            },
+            ...prev
+          ]);
+        }}
       />
     </div>
   );
