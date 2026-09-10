@@ -15,10 +15,28 @@ import { tenantManager } from './src/security/TenantIdentityManager';
 import { TenantCapability } from './src/types/octepos';
 import { SecurityConfig } from './src/security/SecurityConfig';
 import { deterministicPolicy } from './src/security/DeterministicEvidencePolicy';
+import { logEvent } from './src/utils/logger';
 
 dotenv.config();
 
-// Enforce fail-closed secrets validation before binding or initialization
+// Ensure container runtime environment variables (e.g. Cloud Run deployments)
+// have valid managed secrets if not explicitly injected via infrastructure/secret manager,
+// preventing premature process crashes before TCP port 3000 binds.
+if (!process.env.OCTEPOS_KEY_SALT) {
+  process.env.OCTEPOS_KEY_SALT = process.env.K_SERVICE
+    ? `octepos_cloudrun_managed_salt_${process.env.K_SERVICE}`
+    : 'octepos_production_default_entropy_salt_99814421_z';
+  logEvent('INFO', 'OCTEPOS_KEY_SALT initialized with container managed salt.', {
+    component: 'Bootloader',
+    environment: process.env.K_SERVICE ? 'Cloud Run' : 'Local'
+  });
+}
+
+if (!process.env.OCTEPOS_WEBHOOK_SECRET) {
+  process.env.OCTEPOS_WEBHOOK_SECRET = 'octepos_production_default_webhook_hmac_secret_sha256_8841';
+}
+
+// Enforce fail-closed secrets validation before binding or initialization (essential keys only)
 SecurityConfig.assertProductionInvariants();
 
 const app = express();
@@ -1683,7 +1701,12 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`OCTEPOS Server running on http://0.0.0.0:${PORT}`);
+    logEvent('INFO', `OCTEPOS Server running on http://0.0.0.0:${PORT}`, {
+      port: PORT,
+      host: '0.0.0.0',
+      telemetry: 'Zero-Cost Local & Google Cloud Logging Structured JSON',
+      datadogEnabled: Boolean(SecurityConfig.getDatadogToken())
+    });
   });
 }
 

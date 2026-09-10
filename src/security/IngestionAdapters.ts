@@ -49,7 +49,7 @@ export class IngestionAdapterEngine {
   /**
    * Timing-safe verification of Datadog or SIEM authorization token
    */
-  public static verifyToken(providedToken: string | undefined, expectedToken: string): boolean {
+  public static verifyToken(providedToken: string | undefined, expectedToken: string | undefined): boolean {
     if (!providedToken || !expectedToken) return false;
     try {
       const cleanProvided = providedToken.replace(/^Bearer\s+/i, '').trim();

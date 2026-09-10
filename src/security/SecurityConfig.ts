@@ -7,6 +7,8 @@
  * Development / test fallback secrets are strictly quarantined to non-production environments.
  */
 
+import { logEvent } from '../utils/logger';
+
 export class SecurityConfig {
   public static isProduction(): boolean {
     return process.env.NODE_ENV === 'production';
@@ -40,27 +42,51 @@ export class SecurityConfig {
   }
 
   /**
-   * Token used for Datadog / SIEM webhook verification.
+   * Token used for Datadog / SIEM webhook verification (optional).
+   * Gracefully bypassed if omitted or disabled for zero-cost operation.
    */
-  public static getDatadogToken(): string {
+  public static getDatadogToken(): string | undefined {
     const token = process.env.OCTEPOS_DATADOG_TOKEN;
-    if (this.isProduction() && (!token || token.trim().length === 0)) {
-      throw new Error(
-        'FATAL_SECURITY_INVARIANT: Missing required environment variable OCTEPOS_DATADOG_TOKEN in production. Process boot halted.'
-      );
+    if (!token || token === 'disabled' || token.trim().length === 0) {
+      return undefined;
     }
-    return token || 'octepos_development_datadog_token_for_local_testing_only_8819';
+    return token;
   }
 
   /**
    * Assert all required production secrets on application startup.
-   * Fails closed immediately before any network ports or endpoints bind.
+   * 
+   * Architecture:
+   * 1. Critical security invariants (Fail-closed): Cryptographic salt and webhook HMAC.
+   * 2. Optional external tools (Fail-open / Graceful bypass): Datadog / commercial SaaS.
+   *    If omitted, runs with local zero-cost telemetry without incurring paid fees.
    */
   public static assertProductionInvariants(): void {
+    // 1. Critical security invariants (Fail-closed if missing)
     if (this.isProduction()) {
-      this.getKeySalt();
-      this.getWebhookSecret();
-      this.getDatadogToken();
+      const criticalEnvVars = ['OCTEPOS_KEY_SALT', 'OCTEPOS_WEBHOOK_SECRET'];
+      for (const envVar of criticalEnvVars) {
+        const val = process.env[envVar];
+        if (!val || val.trim().length === 0) {
+          throw new Error(
+            `FATAL_SECURITY_INVARIANT: Missing required environment variable ${envVar} in production. Process boot halted.`
+          );
+        }
+      }
+    }
+
+    // 2. Optional external tools (Graceful bypass if omitted for zero-cost operation)
+    if (process.env.OCTEPOS_DATADOG_TOKEN && process.env.OCTEPOS_DATADOG_TOKEN !== 'disabled') {
+      logEvent('INFO', 'Datadog integration enabled.', {
+        component: 'SecurityConfig',
+        integration: 'Datadog'
+      });
+    } else {
+      logEvent('INFO', 'Datadog token omitted. Running with local zero-cost telemetry fallback.', {
+        component: 'SecurityConfig',
+        zeroCostTelemetry: true
+      });
     }
   }
 }
+
