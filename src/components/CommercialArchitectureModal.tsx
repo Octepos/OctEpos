@@ -24,9 +24,11 @@ import {
   ChevronLeft,
   ChevronRight,
   BookOpen,
-  Presentation
+  Presentation,
+  ShieldAlert
 } from 'lucide-react';
 import { PITCH_DECK_SLIDES, PitchSlide } from '../data/pitchDeckData';
+import { FormalEngineeringSpecView } from './FormalEngineeringSpecView';
 
 interface CommercialArchitectureModalProps {
   isOpen: boolean;
@@ -37,7 +39,7 @@ export const CommercialArchitectureModal: React.FC<CommercialArchitectureModalPr
   isOpen,
   onClose
 }) => {
-  const [activeTab, setActiveTab] = useState<'THESIS' | 'LICENSING' | 'BUYERS' | 'GTM' | 'PITCH_DECK'>('THESIS');
+  const [activeTab, setActiveTab] = useState<'THESIS' | 'LICENSING' | 'BUYERS' | 'GTM' | 'PITCH_DECK' | 'FORMAL_SPEC'>('THESIS');
   const [selectedArch, setSelectedArch] = useState<'SIDECAR' | 'TERMINAL' | 'HYBRID'>('HYBRID');
   const [activeSlide, setActiveSlide] = useState<number>(1);
   const [copiedText, setCopiedText] = useState(false);
@@ -193,7 +195,8 @@ Contact: Josh Geddes (joshsgeddes@gmail.com)`;
             { id: 'LICENSING', label: '2. Packaging & Pricing Models', icon: DollarSign },
             { id: 'BUYERS', label: '3. Buyer Personas & Pitch', icon: Users },
             { id: 'GTM', label: '4. GTM & 60-Day PoC Playbook', icon: Rocket },
-            { id: 'PITCH_DECK', label: '5. Executive Briefing & Pitch Deck', icon: FileCheck }
+            { id: 'PITCH_DECK', label: '5. Executive Briefing & Pitch Deck', icon: FileCheck },
+            { id: 'FORMAL_SPEC', label: '6. Formal Engineering Invariants', icon: ShieldAlert }
           ].map(tab => {
             const Icon = tab.icon;
             return (
@@ -793,6 +796,11 @@ Contact: Josh Geddes (joshsgeddes@gmail.com)`;
                 </div>
               </div>
             </div>
+          )}
+
+          {/* TAB 6: FORMAL ENGINEERING INVARIANTS & SPECIFICATION */}
+          {activeTab === 'FORMAL_SPEC' && (
+            <FormalEngineeringSpecView />
           )}
         </div>
 
