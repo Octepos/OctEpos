@@ -45,6 +45,8 @@ import { AuditCertificateModal } from './components/AuditCertificateModal';
 import { CloudRunPerimeterModal } from './components/CloudRunPerimeterModal';
 import { ThreePillarHUD } from './components/ThreePillarHUD';
 import { EvidenceGateSection } from './components/EvidenceGateSection';
+import { DynamicPolicyLeaseSection } from './components/DynamicPolicyLeaseSection';
+import { MerkleProofVerificationSection } from './components/MerkleProofVerificationSection';
 
 export default function App() {
   const [appMode, setAppMode] = useState<AppMode>('EXECUTIVE_AUDIT');
@@ -354,7 +356,17 @@ export default function App() {
               />
             </section>
 
-            {/* 3. AI Evidence Gate Triage Console (Pillar 3 Enforcement) */}
+            {/* 3. Dynamic Policy Lease & Temporal Auto-Revocation */}
+            <section id="section-policy-leases">
+              <DynamicPolicyLeaseSection />
+            </section>
+
+            {/* 4. Cryptographic Merkle Proof & Multi-Node Proxmox Attestation */}
+            <section id="section-merkle-proofs">
+              <MerkleProofVerificationSection />
+            </section>
+
+            {/* 5. AI Evidence Gate Triage Console (Pillar 3 Enforcement) */}
             <section id="section-evidence-gate">
               <EvidenceGateSection
                 triageEvents={evidenceGateEvents}

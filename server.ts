@@ -7,6 +7,9 @@ import dotenv from 'dotenv';
 import { GlassFloorInterceptor, IntentPayload, InvariantState } from './src/security/GlassFloorInterceptor';
 import { SubstrateRouter, ProxmoxClusterState } from './src/security/SubstrateRouter';
 import { EvidenceGateValidator, EvidenceGateCandidateAlert } from './src/security/EvidenceGate';
+import { AdversarialLoadHarness } from './src/security/AdversarialLoadHarness';
+import { PolicyLeaseManager } from './src/security/PolicyLeaseManager';
+import { MerkleProofEngine, StateLeaf, NodeAttestationSignature } from './src/security/MerkleProofEngine';
 
 dotenv.config();
 
@@ -15,16 +18,18 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Core Security Engines
+const merkleEngine = new MerkleProofEngine();
+const policyLeaseManager = new PolicyLeaseManager();
+const glassFloor = new GlassFloorInterceptor(policyLeaseManager);
+const substrateRouter = new SubstrateRouter(policyLeaseManager);
+const evidenceGate = new EvidenceGateValidator();
+
 // In-memory state for telemetry, canary, and Merkle epoch
 let merkleEpoch = 4892;
-let currentStateRoot = '0x8f3c47e91a02d4b8e612f9a3c7450119e84b2c17';
+let currentStateRoot = merkleEngine.getRoot();
 let verifiedProofsCount = 18491;
 const CANARY_TOKEN = 'CANARY-FIN-8841-SECRET';
-
-// Reference Monitor Core Engine, Substrate Router & Evidence Gate Validator
-const glassFloor = new GlassFloorInterceptor();
-const substrateRouter = new SubstrateRouter();
-const evidenceGate = new EvidenceGateValidator();
 
 // Active SSE connections
 interface SSEClient {
@@ -222,6 +227,295 @@ app.post('/api/evidence-gate/triage', async (req: Request, res: Response) => {
       }
     });
   }
+});
+
+// 1c. Evidence Gate Concurrent Adversarial Load & Stress Harness
+app.post('/api/evidence-gate/load-test', async (req: Request, res: Response) => {
+  const {
+    totalAlerts = 25,
+    concurrencyLimit = 10,
+    adversarialRatio = 0.4,
+    syntheticCanaryRatio = 0.4,
+    ambiguousRatio = 0.2
+  } = req.body || {};
+
+  try {
+    const harness = new AdversarialLoadHarness();
+    const report = await harness.executeLoadTest({
+      totalAlerts: Math.min(100, Math.max(5, Number(totalAlerts))),
+      concurrencyLimit: Math.min(25, Math.max(1, Number(concurrencyLimit))),
+      adversarialRatio: Number(adversarialRatio),
+      syntheticCanaryRatio: Number(syntheticCanaryRatio),
+      ambiguousRatio: Number(ambiguousRatio)
+    }, (completed, total, lastLatencyMs) => {
+      broadcastSSE('load_test_progress', {
+        completed,
+        total,
+        lastLatencyMs,
+        timestamp: new Date().toLocaleTimeString()
+      });
+    });
+
+    // Advance Merkle epoch on batch completion
+    merkleEpoch += report.totalProcessed;
+    verifiedProofsCount += report.totalProcessed;
+    currentStateRoot = '0x' + computeSha256(currentStateRoot + report.timestamp + report.totalProcessed).substring(0, 40);
+
+    broadcastSSE('load_test_completed', {
+      report,
+      merkleEpoch,
+      currentStateRoot
+    });
+
+    return res.json({
+      success: true,
+      report,
+      merkleEpoch,
+      currentStateRoot
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+// 1d. Dynamic Policy Lease Management Endpoints
+app.get('/api/leases', (req: Request, res: Response) => {
+  const leases = policyLeaseManager.getAllLeases();
+  return res.json({
+    success: true,
+    leases,
+    count: leases.length
+  });
+});
+
+app.post('/api/leases/issue', (req: Request, res: Response) => {
+  const {
+    substrateId = 'local',
+    capabilities = ['READ_STATE'],
+    ttlSeconds = 30,
+    maxInvocations = 3,
+    tripwireRules = ['COROSYNC_QUORUM_LOSS', 'AIRGAP_VIOLATION']
+  } = req.body || {};
+
+  try {
+    const lease = policyLeaseManager.issueLease({
+      substrateId,
+      capabilities,
+      ttlSeconds: Number(ttlSeconds),
+      maxInvocations: Number(maxInvocations),
+      tripwireRules
+    });
+
+    merkleEpoch += 1;
+    currentStateRoot = '0x' + computeSha256(currentStateRoot + lease.leaseDigest).substring(0, 40);
+
+    broadcastSSE('lease_issued', {
+      lease,
+      merkleEpoch,
+      currentStateRoot,
+      timestamp: new Date().toLocaleTimeString()
+    });
+
+    return res.json({
+      success: true,
+      lease,
+      merkleEpoch,
+      currentStateRoot
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(400).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/leases/revoke', (req: Request, res: Response) => {
+  const { leaseId, reason = 'MANUAL_QUARANTINE' } = req.body || {};
+  if (!leaseId) {
+    return res.status(400).json({ success: false, error: 'leaseId is required' });
+  }
+
+  try {
+    const lease = policyLeaseManager.revokeLease(leaseId, reason);
+    
+    merkleEpoch += 1;
+    currentStateRoot = '0x' + computeSha256(currentStateRoot + lease.leaseDigest).substring(0, 40);
+
+    broadcastSSE('lease_revoked', {
+      lease,
+      merkleEpoch,
+      currentStateRoot,
+      timestamp: new Date().toLocaleTimeString()
+    });
+
+    return res.json({
+      success: true,
+      lease,
+      merkleEpoch,
+      currentStateRoot
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(404).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/leases/tripwire', (req: Request, res: Response) => {
+  const { reason = 'COROSYNC_QUORUM_LOSS', substrateId } = req.body || {};
+
+  const revoked = policyLeaseManager.triggerTripwireCascade(reason, substrateId);
+  
+  merkleEpoch += revoked.length || 1;
+  currentStateRoot = '0x' + computeSha256(currentStateRoot + reason + Date.now()).substring(0, 40);
+
+  broadcastSSE('tripwire_triggered', {
+    revokedCount: revoked.length,
+    reason,
+    revokedLeases: revoked,
+    merkleEpoch,
+    currentStateRoot,
+    timestamp: new Date().toLocaleTimeString()
+  });
+
+  return res.json({
+    success: true,
+    revokedCount: revoked.length,
+    revokedLeases: revoked,
+    merkleEpoch,
+    currentStateRoot
+  });
+});
+
+// 1e. Cryptographic Merkle Proof & Multi-Node Proxmox Attestation Endpoints
+app.get('/api/merkle/tree', (req: Request, res: Response) => {
+  const leaves = merkleEngine.getLeaves();
+  const root = merkleEngine.getRoot();
+  
+  // Evaluate consensus across default cluster
+  const defaultSignatures: NodeAttestationSignature[] = [
+    {
+      nodeId: 'proxmox-pve-01',
+      signature: '0x' + computeSha256(root + 'proxmox-pve-01'),
+      timestamp: Date.now() - 4000,
+      stateRoot: root
+    },
+    {
+      nodeId: 'proxmox-pve-02',
+      signature: '0x' + computeSha256(root + 'proxmox-pve-02'),
+      timestamp: Date.now() - 3200,
+      stateRoot: root
+    },
+    {
+      nodeId: 'lxc-witness-01',
+      signature: '0x' + computeSha256(root + 'lxc-witness-01'),
+      timestamp: Date.now() - 1500,
+      stateRoot: root
+    }
+  ];
+
+  const consensus = merkleEngine.evaluateEpochConsensus(merkleEpoch, defaultSignatures);
+
+  return res.json({
+    success: true,
+    merkleEpoch,
+    stateRoot: root,
+    leaves,
+    treeSize: leaves.length,
+    consensus,
+    domainSeparation: {
+      leafPrefix: '0x00',
+      interiorPrefix: '0x01',
+      balancingRule: 'RFC_6962_PROMOTION'
+    }
+  });
+});
+
+app.get('/api/merkle/proof/:leafId', (req: Request, res: Response) => {
+  const { leafId } = req.params;
+  try {
+    const proof = merkleEngine.generateProof(leafId);
+    return res.json({ success: true, proof });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(404).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/merkle/verify', (req: Request, res: Response) => {
+  const { leafHash, auditPath, expectedRoot } = req.body || {};
+  if (!leafHash || !auditPath || !expectedRoot) {
+    return res.status(400).json({ success: false, error: 'Missing required proof fields' });
+  }
+
+  const valid = MerkleProofEngine.verifyProof(leafHash, auditPath, expectedRoot);
+  if (valid) {
+    verifiedProofsCount += 1;
+  }
+
+  return res.json({
+    success: true,
+    verified: valid,
+    leafHash,
+    expectedRoot,
+    verifiedProofsCount
+  });
+});
+
+app.post('/api/merkle/tamper-sim', (req: Request, res: Response) => {
+  const { leafId, tamperedData } = req.body || {};
+  if (!leafId) {
+    return res.status(400).json({ success: false, error: 'leafId is required' });
+  }
+
+  try {
+    const result = merkleEngine.simulateTamper(leafId, tamperedData || { compromised: true, unauthorizedGrant: 'ALL' });
+    return res.json({ success: true, result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(400).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/merkle/append-leaf', (req: Request, res: Response) => {
+  const { leafType = 'CLUSTER_NODE_HEARTBEAT', data = {} } = req.body || {};
+  const leafId = `LEAF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+  const newLeaf: StateLeaf = {
+    leafId,
+    leafType,
+    data,
+    timestamp: Date.now()
+  };
+
+  const newRoot = merkleEngine.appendLeaf(newLeaf);
+  merkleEpoch += 1;
+  currentStateRoot = newRoot;
+
+  broadcastSSE('merkle_root_advanced', {
+    epoch: merkleEpoch,
+    stateRoot: newRoot,
+    leafId,
+    leafType,
+    treeSize: merkleEngine.getLeaves().length,
+    timestamp: new Date().toLocaleTimeString()
+  });
+
+  return res.json({
+    success: true,
+    leaf: newLeaf,
+    merkleEpoch,
+    stateRoot: newRoot
+  });
+});
+
+app.post('/api/merkle/attest-epoch', (req: Request, res: Response) => {
+  const { signatures = [] } = req.body || {};
+  const consensus = merkleEngine.evaluateEpochConsensus(merkleEpoch, signatures);
+
+  return res.json({
+    success: true,
+    consensus
+  });
 });
 
 // 2. Server-Sent Events (SSE) telemetry stream

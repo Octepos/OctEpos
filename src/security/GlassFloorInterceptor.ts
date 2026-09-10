@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { canonicalize } from 'json-canonicalize';
+import { PolicyLeaseManager } from './PolicyLeaseManager';
 
 export interface InvariantState {
   syscallsDispatched: number;
@@ -12,14 +13,24 @@ export interface IntentPayload {
   target: string;
   parameters: Record<string, unknown>;
   capabilities: string[];
+  leaseId?: string;
 }
 
 export class GlassFloorInterceptor {
   private readonly ALLOWED_CAPABILITIES = new Set(['READ_STATE', 'EMIT_TELEMETRY']);
+  private leaseManager?: PolicyLeaseManager;
+
+  constructor(leaseManager?: PolicyLeaseManager) {
+    this.leaseManager = leaseManager;
+  }
+
+  public setLeaseManager(leaseManager: PolicyLeaseManager): void {
+    this.leaseManager = leaseManager;
+  }
 
   /**
    * Traps intent pre-syscall and evaluates invariants.
-   * Halts execution immediately if unauthorized.
+   * Halts execution immediately if unauthorized or lease is invalid/expired.
    */
   public evaluateIntent(payload: IntentPayload): InvariantState {
     const invariantBaseline: InvariantState = {
@@ -30,6 +41,7 @@ export class GlassFloorInterceptor {
 
     try {
       this.enforceCapabilityGrants(payload.capabilities);
+      this.enforcePolicyLease(payload);
       this.validatePayloadIntegrity(payload);
       
       // If validation passes, return the pristine zero-state invariant
@@ -40,6 +52,14 @@ export class GlassFloorInterceptor {
       // Immediate halt on malicious intent: log to Merkle epoch, block execution
       this.generateProvenanceAudit(payload, message);
       throw new Error(`GLASS_FLOOR_VIOLATION: ${message}`);
+    }
+  }
+
+  private enforcePolicyLease(payload: IntentPayload): void {
+    if (payload.leaseId && this.leaseManager) {
+      for (const cap of payload.capabilities) {
+        this.leaseManager.claimInvocation(payload.leaseId, cap);
+      }
     }
   }
 

@@ -223,3 +223,117 @@ export interface ThreePillarStatus {
     latestDigest: string;
   };
 }
+
+export interface LatencyPercentiles {
+  minMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+  maxMs: number;
+  meanMs: number;
+}
+
+export interface LoadTestReport {
+  timestamp: string;
+  config: {
+    totalAlerts: number;
+    concurrencyLimit: number;
+    adversarialRatio: number;
+    syntheticCanaryRatio: number;
+    ambiguousRatio: number;
+  };
+  totalProcessed: number;
+  successfulTriages: number;
+  failedValidations: number;
+  verdictDistribution: {
+    confirmedTruePositive: number;
+    filteredFalsePositive: number;
+    insufficientEvidence: number;
+  };
+  durationMs: number;
+  throughputPerSecond: number;
+  latencies: LatencyPercentiles;
+  doraLeadTimeImpact: {
+    estimatedCiDelaySeconds: number;
+    verdict: 'NEGLIGIBLE_CI_IMPACT' | 'MODERATE_CI_DELAY' | 'PIPELINE_BOTTLENECK';
+    recommendedConcurrency: number;
+  };
+  invariants: {
+    totalSyscallsDispatched: 0;
+    totalComputeCostSunk: 0;
+    stateLeakagePercentage: '0.00%';
+    merkleRootIntegrityPassed: boolean;
+  };
+}
+
+export type LeaseStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'TRIPWIRE_TRIGGERED';
+
+export type RevocationReason = 
+  | 'TTL_EXPIRED'
+  | 'MAX_INVOCATIONS_EXHAUSTED'
+  | 'COROSYNC_QUORUM_LOSS'
+  | 'GLASS_FLOOR_INTERCEPT'
+  | 'SPLIT_BRAIN_ANOMALY'
+  | 'AIRGAP_VIOLATION'
+  | 'MANUAL_QUARANTINE';
+
+export interface CapabilityLease {
+  leaseId: string;
+  substrateId: string;
+  capabilities: string[];
+  issuedAt: number;
+  expiresAt: number;
+  ttlSeconds: number;
+  maxInvocations: number;
+  invocationsConsumed: number;
+  status: LeaseStatus;
+  revocationReason?: RevocationReason;
+  revokedAt?: number;
+  tripwireRules: string[];
+  leaseDigest: string;
+}
+
+export interface StateLeaf {
+  leafId: string;
+  leafType: 'POLICY_LEASE' | 'EVIDENCE_GATE_VERDICT' | 'CLUSTER_NODE_HEARTBEAT' | 'GLASS_FLOOR_INTERCEPT';
+  data: Record<string, unknown>;
+  timestamp: number;
+}
+
+export interface ProofStep {
+  position: 'left' | 'right';
+  hash: string;
+}
+
+export interface MerkleAuditProof {
+  leafId: string;
+  leafHash: string;
+  auditPath: ProofStep[];
+  expectedRoot: string;
+  verified: boolean;
+  treeSize: number;
+  domainSeparation: {
+    leafPrefix: '0x00';
+    interiorPrefix: '0x01';
+    balancingRule: 'RFC_6962_PROMOTION';
+  };
+}
+
+export interface NodeAttestationSignature {
+  nodeId: string;
+  signature: string;
+  timestamp: number;
+  stateRoot: string;
+}
+
+export interface EpochAttestationConsensus {
+  epoch: number;
+  stateRoot: string;
+  totalNodes: number;
+  quorumRequired: number;
+  signatures: NodeAttestationSignature[];
+  quorumAchieved: boolean;
+  byzantineFaultToleranceVerified: boolean;
+}
+
+

@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:invariants": "tsx --test tests/glass-floor.test.ts tests/substrate-router.test.ts tests/evidence-gate.test.ts"
+    "test:invariants": "tsx --test tests/glass-floor.test.ts tests/substrate-router.test.ts tests/evidence-gate.test.ts tests/adversarial-load.test.ts tests/policy-lease.test.ts tests/merkle-proof.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

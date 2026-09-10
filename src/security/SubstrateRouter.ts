@@ -1,4 +1,5 @@
 import { IntentPayload } from './GlassFloorInterceptor';
+import { PolicyLeaseManager } from './PolicyLeaseManager';
 
 export interface ProxmoxClusterState {
   nodesOnline: number;
@@ -9,6 +10,15 @@ export interface ProxmoxClusterState {
 export class SubstrateRouter {
   private readonly REQUIRED_QUORUM = 2;
   private readonly MAX_LATENCY_MS = 2.0;
+  private leaseManager?: PolicyLeaseManager;
+
+  constructor(leaseManager?: PolicyLeaseManager) {
+    this.leaseManager = leaseManager;
+  }
+
+  public setLeaseManager(leaseManager: PolicyLeaseManager): void {
+    this.leaseManager = leaseManager;
+  }
 
   /**
    * Evaluates cluster health and routes the payload to the local Proxmox substrate.
@@ -24,6 +34,14 @@ export class SubstrateRouter {
       
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      
+      // Cascade tripwire to immediately revoke active policy leases on cluster fault
+      if (state.splitBrainDetected) {
+        this.leaseManager?.triggerTripwireCascade('SPLIT_BRAIN_ANOMALY');
+      } else if (state.nodesOnline < this.REQUIRED_QUORUM) {
+        this.leaseManager?.triggerTripwireCascade('COROSYNC_QUORUM_LOSS');
+      }
+
       // Any failure in cluster state halts routing immediately
       throw new Error(`SUBSTRATE_ROUTING_FAULT: ${message}`);
     }
