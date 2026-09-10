@@ -1,6 +1,6 @@
 {
   "name": "OCTEPOS: Fluid Intelligence Workspace",
-  "description": "Visual Cockpit for capability-based security model, multi-model substrate router, and deterministic glass floor interceptor.",
+  "description": "Zero-cost capability security cockpit with deterministic evidence policy gates, cryptographic Merkle audit trails, and multi-tenant substrate routing.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
