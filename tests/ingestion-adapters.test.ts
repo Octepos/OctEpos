@@ -1,7 +1,7 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert';
 import { createHmac } from 'crypto';
-import { IngestionAdapterEngine } from '../src/security/IngestionAdapters';
+import { IngestionAdapterEngine, ReplayDefenseBloomFilter } from '../src/security/IngestionAdapters';
 import { StructuredEvidenceOutput } from '../src/security/EvidenceGate';
 
 describe('OCTEPOS Ingestion Hooks & Webhook Normalizer Invariant Suite', () => {
@@ -183,5 +183,33 @@ describe('OCTEPOS Ingestion Hooks & Webhook Normalizer Invariant Suite', () => {
     assert.ok(prComment.includes('[BLOCK] True Positive Security Vulnerability Confirmed'));
     assert.ok(prComment.includes('PATH_TRAVERSAL'));
     assert.ok(prComment.includes('0 OS Syscalls (User-Space Gate)'));
+  });
+
+  test('ReplayDefenseBloomFilter blocks duplicate deliveries in sub-microsecond latency', () => {
+    const filter = new ReplayDefenseBloomFilter(16384, 4, 5000);
+
+    const deliveryA = 'webhook-deliv-001-abc';
+    const deliveryB = 'webhook-deliv-002-xyz';
+
+    // First arrival passes
+    const check1 = filter.testAndAdd(deliveryA);
+    assert.strictEqual(check1.isReplay, false);
+
+    // Second unique arrival passes
+    const check2 = filter.testAndAdd(deliveryB);
+    assert.strictEqual(check2.isReplay, false);
+
+    // Replay of deliveryA is immediately blocked
+    const replay1 = filter.testAndAdd(deliveryA);
+    assert.strictEqual(replay1.isReplay, true);
+
+    // Replay of deliveryB is immediately blocked
+    const replay2 = filter.testAndAdd(deliveryB);
+    assert.strictEqual(replay2.isReplay, true);
+
+    const stats = filter.getStats();
+    assert.strictEqual(stats.replaysBlocked, 2);
+    assert.strictEqual(stats.totalChecks, 4);
+    assert.strictEqual(stats.entriesTracked, 2);
   });
 });

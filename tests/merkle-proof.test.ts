@@ -161,4 +161,30 @@ describe('OCTEPOS Merkle Proof Engine - Cryptographic Verification & Byzantine F
     assert.strictEqual(consensus3.quorumAchieved, false, 'Consensus must reject stale/forged root');
     assert.strictEqual(consensus3.signatures.length, 1);
   });
+
+  test('Exportable Cryptographic Audit Bundle generates self-contained proofs and verifies offline', () => {
+    const engine = new MerkleProofEngine([
+      { leafId: 'AUDIT-LEAF-01', leafType: 'POLICY_LEASE', data: { leaseId: 'LEASE-ALPHA' }, timestamp: 1000 },
+      { leafId: 'AUDIT-LEAF-02', leafType: 'GLASS_FLOOR_INTERCEPT', data: { ruleId: 'NO-SYSCALL' }, timestamp: 1001 },
+      { leafId: 'AUDIT-LEAF-03', leafType: 'EVIDENCE_GATE_VERDICT', data: { verdict: 'PASS' }, timestamp: 1002 }
+    ]);
+
+    const bundle = engine.exportAuditBundle(999);
+
+    assert.strictEqual(bundle.schemaVersion, 'octepos.audit.v1');
+    assert.strictEqual(bundle.epoch, 999);
+    assert.strictEqual(bundle.manifest.totalLeaves, 3);
+    assert.ok(bundle.manifest.stateRoot.startsWith('0x'));
+    assert.strictEqual(bundle.consensus.quorumAchieved, true);
+    assert.strictEqual(bundle.leafAuditTrail.length, 3);
+    assert.ok(bundle.offlineVerifierScript.includes('OCTEPOS Standalone Cryptographic Audit Bundle Verifier'));
+
+    // In-memory offline verification of the bundle
+    const offlineResult = MerkleProofEngine.verifyBundleOffline(bundle);
+    assert.strictEqual(offlineResult.stateRootValid, true);
+    assert.strictEqual(offlineResult.allLeavesVerified, true);
+    assert.strictEqual(offlineResult.quorumVerified, true);
+    assert.strictEqual(offlineResult.leafResults.length, 3);
+    assert.ok(offlineResult.leafResults.every(r => r.valid));
+  });
 });

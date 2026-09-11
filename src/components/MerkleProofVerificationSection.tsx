@@ -19,7 +19,8 @@ import {
   Zap, 
   Layers,
   ChevronRight,
-  Plus
+  Plus,
+  Download
 } from 'lucide-react';
 import { 
   StateLeaf, 
@@ -65,6 +66,29 @@ export const MerkleProofVerificationSection: React.FC<MerkleProofVerificationSec
 
   // Append Leaf state
   const [isAppendingLeaf, setIsAppendingLeaf] = useState(false);
+  const [isExportingBundle, setIsExportingBundle] = useState(false);
+  const [bundleExportStatus, setBundleExportStatus] = useState<string | null>(null);
+
+  const handleExportBundle = async () => {
+    setIsExportingBundle(true);
+    try {
+      const res = await fetch('/api/merkle/export-bundle');
+      const bundle = await res.json();
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(bundle, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `octepos-audit-epoch-${bundle.epoch || 'latest'}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      setBundleExportStatus(`Exported ${bundle.totalLeaves} leaves with complete RFC 6962 proofs for Epoch #${bundle.epoch}`);
+      setTimeout(() => setBundleExportStatus(null), 4500);
+    } catch (err) {
+      console.error('Failed to export bundle:', err);
+    } finally {
+      setIsExportingBundle(false);
+    }
+  };
 
   // Fetch Merkle tree from backend
   const fetchMerkleTree = async () => {
@@ -229,7 +253,17 @@ export const MerkleProofVerificationSection: React.FC<MerkleProofVerificationSec
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleExportBundle}
+            disabled={isExportingBundle}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/50 bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-200 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+            title="Export full cryptographic audit bundle containing root, consensus, and all inclusion proofs for zero-trust offline verification"
+          >
+            <Download className="h-3.5 w-3.5 text-cyan-400" />
+            <span>{isExportingBundle ? 'Generating Bundle...' : 'Export Audit Bundle (.json)'}</span>
+          </button>
+
           <button
             onClick={handleAppendHeartbeat}
             disabled={isAppendingLeaf}
@@ -240,6 +274,16 @@ export const MerkleProofVerificationSection: React.FC<MerkleProofVerificationSec
           </button>
         </div>
       </div>
+
+      {bundleExportStatus && (
+        <div className="mb-4 p-2.5 rounded-lg border border-cyan-500/60 bg-cyan-950/60 text-cyan-200 text-xs flex items-center justify-between animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-cyan-400" />
+            <span>{bundleExportStatus}</span>
+          </div>
+          <span className="text-[10px] text-cyan-300/80 font-mono">OFFLINE VERIFIABLE &bull; ZERO SYSCALLS</span>
+        </div>
+      )}
 
       {/* State Root & Cluster Attestation Bar */}
       {treeData && (

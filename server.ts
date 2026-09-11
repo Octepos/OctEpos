@@ -10,7 +10,7 @@ import { EvidenceGateValidator, EvidenceGateCandidateAlert } from './src/securit
 import { AdversarialLoadHarness } from './src/security/AdversarialLoadHarness';
 import { PolicyLeaseManager } from './src/security/PolicyLeaseManager';
 import { MerkleProofEngine, StateLeaf, NodeAttestationSignature } from './src/security/MerkleProofEngine';
-import { IngestionAdapterEngine, IngestedWebhookEvent, IngestionProvider } from './src/security/IngestionAdapters';
+import { IngestionAdapterEngine, IngestedWebhookEvent, IngestionProvider, ReplayDefenseBloomFilter } from './src/security/IngestionAdapters';
 import { tenantManager } from './src/security/TenantIdentityManager';
 import { TenantCapability } from './src/types/octepos';
 import { SecurityConfig } from './src/security/SecurityConfig';
@@ -460,6 +460,13 @@ app.get('/api/merkle/tree', (req: Request, res: Response) => {
   });
 });
 
+app.get('/api/merkle/export-bundle', (req: Request, res: Response) => {
+  const bundle = merkleEngine.exportAuditBundle(merkleEpoch);
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="octepos-audit-epoch-${merkleEpoch}.json"`);
+  return res.json(bundle);
+});
+
 app.get('/api/merkle/proof/:leafId', (req: Request, res: Response) => {
   const { leafId } = req.params;
   try {
@@ -718,6 +725,41 @@ async function processWebhookIngest(
 }
 
 // Helper: Extracts delivery ID and requests atomic admission from durable ledger authority
+const replayBloomFilter = new ReplayDefenseBloomFilter(65536, 4, 600000);
+
+app.get('/api/webhooks/replay-filter/stats', (req: Request, res: Response) => {
+  return res.json({
+    success: true,
+    stats: replayBloomFilter.getStats()
+  });
+});
+
+app.post('/api/webhooks/replay-filter/simulate-burst', (req: Request, res: Response) => {
+  const { burstCount = 1000 } = req.body || {};
+  const t0 = performance.now();
+  const testId = `replay-burst-sim-${Date.now()}`;
+
+  // First arrival admitted
+  replayBloomFilter.testAndAdd(testId);
+
+  // Subsequent arrivals are absorbed by Bloom filter
+  let blocked = 0;
+  for (let i = 1; i < burstCount; i++) {
+    const res = replayBloomFilter.testAndAdd(testId);
+    if (res.isReplay) blocked++;
+  }
+  const totalElapsedMs = Math.round((performance.now() - t0) * 100) / 100;
+
+  return res.json({
+    success: true,
+    burstCount,
+    blocked,
+    totalElapsedMs,
+    avgMicrosPerCheck: Math.round((totalElapsedMs / burstCount) * 1000 * 100) / 100,
+    stats: replayBloomFilter.getStats()
+  });
+});
+
 function extractDeliveryAndAuth(req: Request, provider: IngestionProvider) {
   let deliveryId: string | undefined;
   if (provider === 'GITHUB') {
@@ -744,6 +786,18 @@ function extractDeliveryAndAuth(req: Request, provider: IngestionProvider) {
 app.post('/api/webhooks/github', async (req: Request, res: Response) => {
   try {
     const { deliveryId, keyToUse, requestId } = extractDeliveryAndAuth(req, 'GITHUB');
+
+    // L1 Edge Defense: Sub-microsecond Bloom filter absorbs duplicate deliveries
+    const replayCheck = replayBloomFilter.testAndAdd(deliveryId);
+    if (replayCheck.isReplay) {
+      return res.json({
+        success: true,
+        replayFiltered: true,
+        message: `[REPLAY ATTACK FILTERED] Delivery ID ${deliveryId} absorbed at edge in ${replayCheck.latencyMicros}µs (0 database hits, 0 credits billed)`,
+        deliveryId,
+        subMicrosecondEdgeBlocked: true
+      });
+    }
 
     // Atomic Admission & Quota Evaluation BEFORE downstream processing
     const quota = tenantManager.evaluateAndBurnQuota(
@@ -836,6 +890,18 @@ app.post('/api/webhooks/datadog', async (req: Request, res: Response) => {
   try {
     const { deliveryId, keyToUse, requestId } = extractDeliveryAndAuth(req, 'DATADOG');
 
+    // L1 Edge Defense: Sub-microsecond Bloom filter absorbs duplicate deliveries
+    const replayCheck = replayBloomFilter.testAndAdd(deliveryId);
+    if (replayCheck.isReplay) {
+      return res.json({
+        success: true,
+        replayFiltered: true,
+        message: `[REPLAY ATTACK FILTERED] Delivery ID ${deliveryId} absorbed at edge in ${replayCheck.latencyMicros}µs (0 database hits, 0 credits billed)`,
+        deliveryId,
+        subMicrosecondEdgeBlocked: true
+      });
+    }
+
     const quota = tenantManager.evaluateAndBurnQuota(
       keyToUse,
       'CAP_INGEST_WEBHOOKS',
@@ -916,6 +982,18 @@ app.post('/api/webhooks/datadog', async (req: Request, res: Response) => {
 app.post('/api/webhooks/siem', async (req: Request, res: Response) => {
   try {
     const { deliveryId, keyToUse, requestId } = extractDeliveryAndAuth(req, 'SPLUNK');
+
+    // L1 Edge Defense: Sub-microsecond Bloom filter absorbs duplicate deliveries
+    const replayCheck = replayBloomFilter.testAndAdd(deliveryId);
+    if (replayCheck.isReplay) {
+      return res.json({
+        success: true,
+        replayFiltered: true,
+        message: `[REPLAY ATTACK FILTERED] Delivery ID ${deliveryId} absorbed at edge in ${replayCheck.latencyMicros}µs (0 database hits, 0 credits billed)`,
+        deliveryId,
+        subMicrosecondEdgeBlocked: true
+      });
+    }
 
     const quota = tenantManager.evaluateAndBurnQuota(
       keyToUse,

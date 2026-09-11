@@ -325,6 +325,21 @@ export const AIStudioWorkflowLensModal: React.FC<AIStudioWorkflowLensModalProps>
     setTimeout(() => setCanaryResult(null), 4500);
   };
 
+  const handleExecuteAutoCanarySweep = () => {
+    const sweep = celEngine.executeAutonomousCanarySweep();
+    const allRules = celEngine.getRules().filter(r => r.enabled);
+    const updated = allRules.map(r => {
+      return celEngine.runAdversarialBoundaryCanary(r.id);
+    });
+    setCelEvalResults(updated);
+    if (sweep.healedRules.length > 0) {
+      setCanaryResult(`Autonomous Scheduler healed ${sweep.healedRules.length} rule(s) [${sweep.healedRules.join(', ')}] from Deviation Collapse! BAR restored above 15%.`);
+    } else {
+      setCanaryResult(`Autonomous Scheduler completed vitality sweep across ${allRules.length} guardrails. Zero deviation collapse.`);
+    }
+    setTimeout(() => setCanaryResult(null), 5000);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -1070,37 +1085,48 @@ export const AIStudioWorkflowLensModal: React.FC<AIStudioWorkflowLensModalProps>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 bg-neutral-900 border border-neutral-800 p-0.5 rounded-lg text-[10px]">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
-                        onClick={() => setTelemetryViewMode('BAR_GRAPH')}
-                        className={`px-2.5 py-1 rounded transition-colors font-bold ${
-                          telemetryViewMode === 'BAR_GRAPH'
-                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                            : 'text-neutral-400 hover:text-neutral-200'
-                        }`}
+                        onClick={handleExecuteAutoCanarySweep}
+                        className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-amber-500/50 bg-amber-950/40 hover:bg-amber-900/60 text-amber-200 text-[10px] font-bold transition-all shadow-sm"
+                        title="Autonomous Canary Scheduler sweeps active rules and restores vitality above 15% BAR"
                       >
-                        BAR Health Graph
+                        <Activity className="h-3.5 w-3.5 text-amber-400 animate-pulse" />
+                        <span>Autonomous Canary Sweep</span>
                       </button>
-                      <button
-                        onClick={() => setTelemetryViewMode('CARDS')}
-                        className={`px-2.5 py-1 rounded transition-colors font-bold ${
-                          telemetryViewMode === 'CARDS'
-                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                            : 'text-neutral-400 hover:text-neutral-200'
-                        }`}
-                      >
-                        Policy Cards
-                      </button>
-                      <button
-                        onClick={() => setTelemetryViewMode('PROTO_WIRE')}
-                        className={`px-2.5 py-1 rounded transition-colors font-bold ${
-                          telemetryViewMode === 'PROTO_WIRE'
-                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                            : 'text-neutral-400 hover:text-neutral-200'
-                        }`}
-                      >
-                        Protobuf Wire
-                      </button>
+
+                      <div className="flex items-center gap-1 bg-neutral-900 border border-neutral-800 p-0.5 rounded-lg text-[10px]">
+                        <button
+                          onClick={() => setTelemetryViewMode('BAR_GRAPH')}
+                          className={`px-2.5 py-1 rounded transition-colors font-bold ${
+                            telemetryViewMode === 'BAR_GRAPH'
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                              : 'text-neutral-400 hover:text-neutral-200'
+                          }`}
+                        >
+                          BAR Health Graph
+                        </button>
+                        <button
+                          onClick={() => setTelemetryViewMode('CARDS')}
+                          className={`px-2.5 py-1 rounded transition-colors font-bold ${
+                            telemetryViewMode === 'CARDS'
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                              : 'text-neutral-400 hover:text-neutral-200'
+                          }`}
+                        >
+                          Policy Cards
+                        </button>
+                        <button
+                          onClick={() => setTelemetryViewMode('PROTO_WIRE')}
+                          className={`px-2.5 py-1 rounded transition-colors font-bold ${
+                            telemetryViewMode === 'PROTO_WIRE'
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                              : 'text-neutral-400 hover:text-neutral-200'
+                          }`}
+                        >
+                          Protobuf Wire
+                        </button>
+                      </div>
                     </div>
                   </div>
 

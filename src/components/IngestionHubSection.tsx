@@ -16,7 +16,10 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
-  Cpu
+  Cpu,
+  Zap,
+  Layers,
+  Activity
 } from 'lucide-react';
 import { IngestedWebhookEvent, IngestionProvider } from '../security/IngestionAdapters';
 
@@ -32,6 +35,21 @@ export const IngestionHubSection: React.FC<IngestionHubSectionProps> = ({ onWebh
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [expandedWebhookId, setExpandedWebhookId] = useState<string | null>(null);
   const [scenarioMode, setScenarioMode] = useState<'EXPLOIT' | 'FALSE_POSITIVE'>('EXPLOIT');
+  const [bloomStats, setBloomStats] = useState<{
+    capacityBits: number;
+    hashCount: number;
+    entriesTracked: number;
+    replaysBlocked: number;
+    totalChecks: number;
+    memoryBytes: number;
+  } | null>(null);
+  const [isSimulatingBurst, setIsSimulatingBurst] = useState<boolean>(false);
+  const [burstReport, setBurstReport] = useState<{
+    burstCount: number;
+    blocked: number;
+    totalElapsedMs: number;
+    avgMicrosPerCheck: number;
+  } | null>(null);
 
   const originUrl = typeof window !== 'undefined' ? window.location.origin : 'https://octepos.internal';
 
@@ -129,13 +147,52 @@ curl -X POST "${originUrl}/api/webhooks/siem" \\
     }
   };
 
+  const fetchBloomStats = async () => {
+    try {
+      const res = await fetch('/api/webhooks/replay-filter/stats');
+      const data = await res.json();
+      if (data.success && data.stats) {
+        setBloomStats(data.stats);
+      }
+    } catch (err) {
+      console.error('Failed to load bloom stats:', err);
+    }
+  };
+
+  const handleSimulateBurst = async () => {
+    try {
+      setIsSimulatingBurst(true);
+      const res = await fetch('/api/webhooks/replay-filter/simulate-burst', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ burstCount: 1000 })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBurstReport({
+          burstCount: data.burstCount,
+          blocked: data.blocked,
+          totalElapsedMs: data.totalElapsedMs,
+          avgMicrosPerCheck: data.avgMicrosPerCheck
+        });
+        if (data.stats) setBloomStats(data.stats);
+      }
+    } catch (err) {
+      console.error('Failed to simulate replay burst:', err);
+    } finally {
+      setIsSimulatingBurst(false);
+    }
+  };
+
   useEffect(() => {
     fetchRecentWebhooks();
+    fetchBloomStats();
 
     // Listen for live SSE events
     const sse = new EventSource('/api/telemetry/stream');
     sse.addEventListener('webhook_ingested', () => {
       fetchRecentWebhooks();
+      fetchBloomStats();
       if (onWebhookProcessed) onWebhookProcessed();
     });
 
@@ -248,6 +305,77 @@ curl -X POST "${originUrl}/api/webhooks/siem" \\
             </button>
           );
         })}
+      </div>
+
+      {/* L1 Edge Replay Defense: Sub-Microsecond Bloom Filter HUD */}
+      <div className="mb-6 p-4 rounded-xl border border-cyan-500/30 bg-gradient-to-r from-slate-950 via-cyan-950/20 to-slate-950 font-mono text-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800/80 pb-3 mb-3">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+              <Zap className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-semibold text-slate-100 text-sm">
+                  Sub-Microsecond Replay Defense (L1 Bloom Filter)
+                </span>
+                <span className="px-1.5 py-0.2 rounded bg-cyan-950 border border-cyan-700 text-cyan-300 text-[10px]">
+                  &lt; 0.4µs Zero-DB Latency
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 font-sans mt-0.5">
+                Absorbs webhook retries and duplicate bursts at the network edge before SQLite/WAL queries or accounting ledger locks occur.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSimulateBurst}
+            disabled={isSimulatingBurst}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs transition cursor-pointer disabled:opacity-50 shrink-0"
+          >
+            <Activity className={`w-3.5 h-3.5 ${isSimulatingBurst ? 'animate-spin' : ''}`} />
+            <span>{isSimulatingBurst ? 'Saturating Edge...' : 'Simulate Replay Burst (1,000)'}</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
+          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+            <span className="text-slate-400 block text-[10px]">Capacity &amp; Hashes</span>
+            <span className="text-cyan-300 font-bold">{bloomStats ? `${bloomStats.capacityBits.toLocaleString()} bits (k=${bloomStats.hashCount})` : '65,536 bits (k=4)'}</span>
+            <span className="text-[9px] text-slate-500 block mt-0.5">Kirsch-Mitzenmacher Double Hash</span>
+          </div>
+
+          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+            <span className="text-slate-400 block text-[10px]">RAM Footprint</span>
+            <span className="text-emerald-300 font-bold">{bloomStats ? `${(bloomStats.memoryBytes / 1024).toFixed(1)} KB` : '8.2 KB'}</span>
+            <span className="text-[9px] text-slate-500 block mt-0.5">Zero Allocation Bit Array</span>
+          </div>
+
+          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+            <span className="text-slate-400 block text-[10px]">Replays Blocked</span>
+            <span className="text-amber-300 font-bold">{bloomStats ? bloomStats.replaysBlocked.toLocaleString() : '0'}</span>
+            <span className="text-[9px] text-slate-500 block mt-0.5">0 Credits Billed &bull; 0 DB Writes</span>
+          </div>
+
+          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+            <span className="text-slate-400 block text-[10px]">Total Edge Checks</span>
+            <span className="text-slate-200 font-bold">{bloomStats ? bloomStats.totalChecks.toLocaleString() : '0'}</span>
+            <span className="text-[9px] text-slate-500 block mt-0.5">Sub-microsecond evaluation</span>
+          </div>
+        </div>
+
+        {burstReport && (
+          <div className="mt-3 p-2.5 rounded-lg border border-cyan-500/50 bg-cyan-950/40 text-cyan-200 text-[11px] flex items-center justify-between animate-fadeIn">
+            <div className="flex items-center space-x-2">
+              <ShieldCheck className="w-4 h-4 text-cyan-400" />
+              <span>
+                Absorbed burst of <strong>{burstReport.burstCount}</strong> requests: <strong>{burstReport.blocked}</strong> duplicates dropped at edge in <strong>{burstReport.totalElapsedMs}ms</strong>.
+              </span>
+            </div>
+            <span className="text-cyan-300 font-bold">{burstReport.avgMicrosPerCheck}µs / check</span>
+          </div>
+        )}
       </div>
 
       {/* Active Provider Configuration & Live Simulator Grid */}

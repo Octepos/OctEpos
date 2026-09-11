@@ -378,4 +378,70 @@ export class CelPolicyEngine {
 
     return this.evaluateRule(ruleId, canaryContext);
   }
+
+  /**
+   * Autonomous Canary Scheduler (BAR Vitality Preservation)
+   * Automatically sweeps active rules. When a rule's BAR is near or below the threshold
+   * (minBarThreshold, typically 0.15) or marked as collapsed, it injects synthetic edge probes
+   * until vitality is restored above the threshold.
+   */
+  public executeAutonomousCanarySweep(): {
+    probedRuleIds: string[];
+    healedRules: string[];
+    sweepTimestamp: string;
+    details: Array<{
+      ruleId: string;
+      priorBar: number;
+      updatedBar: number;
+      recoveredFromCollapse: boolean;
+      latencyMs: number;
+    }>;
+  } {
+    const activeRules = this.getRules().filter(r => r.enabled);
+    const probedRuleIds: string[] = [];
+    const healedRules: string[] = [];
+    const details: Array<{
+      ruleId: string;
+      priorBar: number;
+      updatedBar: number;
+      recoveredFromCollapse: boolean;
+      latencyMs: number;
+    }> = [];
+
+    for (const rule of activeRules) {
+      // Check if rule is collapsed or within 5% of minBarThreshold
+      const isAtRisk = rule.metrics.isDeviationCollapsed || 
+        (rule.metrics.totalEvaluations >= 8 && rule.metrics.currentBar < (rule.minBarThreshold + 0.05));
+
+      if (isAtRisk) {
+        probedRuleIds.push(rule.id);
+        const priorBar = rule.metrics.currentBar;
+        const priorCollapsed = rule.metrics.isDeviationCollapsed;
+
+        // Fire boundary probe
+        const evalRes = this.runAdversarialBoundaryCanary(rule.id);
+        const updatedBar = evalRes.barTelemetry.updatedBar;
+        const recovered = priorCollapsed && !evalRes.barTelemetry.deviationCollapsed;
+
+        if (recovered) {
+          healedRules.push(rule.id);
+        }
+
+        details.push({
+          ruleId: rule.id,
+          priorBar,
+          updatedBar,
+          recoveredFromCollapse: recovered,
+          latencyMs: evalRes.evalLatencyMs
+        });
+      }
+    }
+
+    return {
+      probedRuleIds,
+      healedRules,
+      sweepTimestamp: new Date().toISOString(),
+      details
+    };
+  }
 }
