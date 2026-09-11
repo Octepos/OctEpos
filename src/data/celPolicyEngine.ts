@@ -66,6 +66,52 @@ export interface CelEvaluationResult {
   };
 }
 
+/**
+ * OCTEPOS CEL Telemetry & BAR Wire Format (Protobuf/JSON Schema)
+ */
+export interface CelTelemetryWirePayload {
+  policy_id: string;
+  is_admissible: boolean;              // The final Glass Floor decision (Pass/Fail)
+  evaluation_cost: number;             // The computed CEL cost to ensure strict O(N) execution bounds
+  execution_latency_ms: number;       // Sub-millisecond tracking for the UI
+  boundary_metrics: {
+    boundary_exercised: boolean;       // True if the LLM attempted an action near the constraint edge
+    historical_bar: number;            // Moving average of Boundary Activation Rate
+    deviation_collapse_alert: boolean; // Triggered if historical_bar drops below threshold (< 0.15 / < 0.05)
+  };
+}
+
+export const CEL_TELEMETRY_PROTO_SCHEMA = `// OCTEPOS CEL Telemetry & BAR Wire Format
+syntax = "proto3";
+
+message CelEvaluationResult {
+  string policy_id = 1;
+  bool is_admissible = 2;              // The final Glass Floor decision (Pass/Fail)
+  int32 evaluation_cost = 3;           // The computed CEL cost to ensure strict O(N) execution bounds
+  double execution_latency_ms = 4;     // Sub-millisecond tracking for the UI
+  BoundaryMetrics boundary_metrics = 5;
+}
+
+message BoundaryMetrics {
+  bool boundary_exercised = 1;         // True if the LLM attempted an action near the constraint edge
+  double historical_bar = 2;           // Moving average of Boundary Activation Rate
+  bool deviation_collapse_alert = 3;   // Triggered if historical_bar drops below threshold (e.g., < 0.05)
+}`;
+
+export function toCelTelemetryWirePayload(result: CelEvaluationResult): CelTelemetryWirePayload {
+  return {
+    policy_id: result.ruleId,
+    is_admissible: result.permitted,
+    evaluation_cost: result.estimatedCost,
+    execution_latency_ms: result.evalLatencyMs,
+    boundary_metrics: {
+      boundary_exercised: result.trippedBoundary,
+      historical_bar: result.barTelemetry.updatedBar,
+      deviation_collapse_alert: result.barTelemetry.deviationCollapsed
+    }
+  };
+}
+
 export const DEFAULT_CEL_POLICIES: CelPolicyRule[] = [
   {
     id: 'CEL-POL-01',

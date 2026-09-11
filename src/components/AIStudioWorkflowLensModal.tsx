@@ -31,7 +31,8 @@ import {
   Key,
   UserCheck,
   Shield,
-  AlertTriangle
+  AlertTriangle,
+  Activity
 } from 'lucide-react';
 import { 
   LensOperationalMode, 
@@ -54,7 +55,10 @@ import {
 import {
   CelPolicyEngine,
   CelEvaluationResult,
-  CelEvaluationContext
+  CelEvaluationContext,
+  toCelTelemetryWirePayload,
+  CelTelemetryWirePayload,
+  CEL_TELEMETRY_PROTO_SCHEMA
 } from '../data/celPolicyEngine';
 
 interface AIStudioWorkflowLensModalProps {
@@ -71,9 +75,11 @@ export const AIStudioWorkflowLensModal: React.FC<AIStudioWorkflowLensModalProps>
   // Step navigation
   const [activeStep, setActiveStep] = useState<'COMPILE' | 'APPROVAL' | 'VALIDATE' | 'SANDBOX' | 'REDACTION' | 'ARCHITECTURE'>('COMPILE');
 
-  // CEL Policy Engine State (Glass Floor Reference Monitor)
+  // CEL Policy Engine State (Glass Floor Reference Monitor & BAR Telemetry)
   const [celEngine] = useState(() => new CelPolicyEngine());
   const [celEvalResults, setCelEvalResults] = useState<CelEvaluationResult[]>([]);
+  const [telemetryViewMode, setTelemetryViewMode] = useState<'BAR_GRAPH' | 'CARDS' | 'PROTO_WIRE'>('BAR_GRAPH');
+  const [canaryResult, setCanaryResult] = useState<string | null>(null);
 
   // Sovereign NZ Redactor & ZTDS State
   const [redactor] = useState(() => new SovereignNZRedactor());
@@ -305,6 +311,18 @@ export const AIStudioWorkflowLensModal: React.FC<AIStudioWorkflowLensModalProps>
       tests: [],
       diffStats: { additions: 0, deletions: 0, files: 0 }
     });
+  };
+
+  const handleRunAdversarialCanary = (ruleId: string) => {
+    const canaryRes = celEngine.runAdversarialBoundaryCanary(ruleId);
+    const updated = celEngine.getRules().filter(r => r.enabled).map(r => {
+      if (r.id === ruleId) return canaryRes;
+      const existing = celEvalResults.find(e => e.ruleId === r.id);
+      return existing || canaryRes;
+    });
+    setCelEvalResults(updated);
+    setCanaryResult(`Canary deflected by [${ruleId}]. Boundary exercised! Updated BAR: ${(canaryRes.barTelemetry.updatedBar * 100).toFixed(1)}%`);
+    setTimeout(() => setCanaryResult(null), 4500);
   };
 
   if (!isOpen) return null;
@@ -1035,63 +1053,246 @@ export const AIStudioWorkflowLensModal: React.FC<AIStudioWorkflowLensModalProps>
                 </div>
               )}
 
-              {/* CEL Policy Runtime Enforcement Telemetry (Glass Floor Invariant Engine) */}
+              {/* CEL Policy Runtime Enforcement & BAR Telemetry Wire Inspector */}
               {celEvalResults.length > 0 && (
-                <div className="rounded-xl border border-cyan-500/40 bg-neutral-950 p-4 space-y-3 font-mono animate-fadeIn">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="rounded-xl border border-cyan-500/40 bg-neutral-950 p-4 space-y-4 font-mono animate-fadeIn">
+                  {/* Telemetry Header with View Mode Switcher */}
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-neutral-800">
                     <div className="flex items-center gap-2">
                       <Terminal className="h-4 w-4 text-cyan-400" />
-                      <span className="text-xs font-bold text-neutral-200 uppercase tracking-wider">
-                        CEL Policy Runtime Telemetry (Glass Floor Reference Monitor)
-                      </span>
+                      <div>
+                        <span className="text-xs font-bold text-neutral-200 uppercase tracking-wider block">
+                          Glass Floor Reference Monitor Telemetry & BAR Wire
+                        </span>
+                        <span className="text-[10px] text-neutral-400">
+                          Deterministic CEL • O(N) Execution Bounded • Deviation Collapse Detection
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-[10px] text-neutral-500 font-mono">
-                      O(N) LINEAR-TIME BOUNDED • ZERO-MUTATION
-                    </span>
-                  </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {celEvalResults.map((evalRes) => (
-                      <div
-                        key={evalRes.ruleId}
-                        className={`rounded-lg border p-3 space-y-2 ${
-                          evalRes.permitted
-                            ? 'border-emerald-500/30 bg-emerald-950/10 text-neutral-200'
-                            : 'border-red-500/40 bg-red-950/20 text-red-200'
+                    <div className="flex items-center gap-1 bg-neutral-900 border border-neutral-800 p-0.5 rounded-lg text-[10px]">
+                      <button
+                        onClick={() => setTelemetryViewMode('BAR_GRAPH')}
+                        className={`px-2.5 py-1 rounded transition-colors font-bold ${
+                          telemetryViewMode === 'BAR_GRAPH'
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                            : 'text-neutral-400 hover:text-neutral-200'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-xs flex items-center gap-1.5">
-                            {evalRes.permitted ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                            ) : (
-                              <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
-                            )}
-                            <span>{evalRes.ruleId}</span>
+                        BAR Health Graph
+                      </button>
+                      <button
+                        onClick={() => setTelemetryViewMode('CARDS')}
+                        className={`px-2.5 py-1 rounded transition-colors font-bold ${
+                          telemetryViewMode === 'CARDS'
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                            : 'text-neutral-400 hover:text-neutral-200'
+                        }`}
+                      >
+                        Policy Cards
+                      </button>
+                      <button
+                        onClick={() => setTelemetryViewMode('PROTO_WIRE')}
+                        className={`px-2.5 py-1 rounded transition-colors font-bold ${
+                          telemetryViewMode === 'PROTO_WIRE'
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                            : 'text-neutral-400 hover:text-neutral-200'
+                        }`}
+                      >
+                        Protobuf Wire
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Canary Trigger Notification */}
+                  {canaryResult && (
+                    <div className="p-2.5 rounded-lg border border-cyan-500/50 bg-cyan-950/40 text-cyan-200 text-[11px] flex items-center justify-between animate-fadeIn">
+                      <div className="flex items-center gap-2">
+                        <Activity className="h-4 w-4 text-cyan-400 animate-pulse" />
+                        <span>{canaryResult}</span>
+                      </div>
+                      <span className="text-[10px] text-cyan-400/80 font-bold">CONSTRAINT EDGE EXERCISED</span>
+                    </div>
+                  )}
+
+                  {/* Deviation Collapse Alert Banner */}
+                  {celEvalResults.some(r => r.barTelemetry.deviationCollapsed) && (
+                    <div className="p-3 rounded-xl border border-amber-500/50 bg-amber-950/30 text-amber-200 text-xs flex items-start gap-2.5">
+                      <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <span className="font-bold uppercase tracking-wider text-[11px] text-amber-300 block">
+                          DEVIATION COLLAPSE ALERT (BAR &lt; 0.15)
+                        </span>
+                        <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                          One or more CEL policies have experienced Deviation Collapse. Code generation is passing trivially because adversarial boundary conditions are not being actively tested. Inject synthetic canaries to verify boundary deflection vitality.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 1: BAR HEALTH GRAPH */}
+                  {telemetryViewMode === 'BAR_GRAPH' && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between text-[11px] text-neutral-400">
+                        <span>Boundary Activation Rate (BAR) Metric across Active Guardrails:</span>
+                        <span className="text-[10px] text-neutral-500">Threshold Floor: 15.0% BAR</span>
+                      </div>
+
+                      <div className="space-y-3">
+                        {celEvalResults.map((evalRes) => {
+                          const barPct = Math.round(evalRes.barTelemetry.updatedBar * 1000) / 10;
+                          const isCollapsed = evalRes.barTelemetry.deviationCollapsed;
+                          const wire = toCelTelemetryWirePayload(evalRes);
+
+                          return (
+                            <div key={evalRes.ruleId} className="rounded-lg border border-neutral-800 bg-neutral-900/50 p-3 space-y-2">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className={`h-2.5 w-2.5 rounded-full ${evalRes.permitted ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                                  <span className="font-bold text-neutral-200 text-xs">{evalRes.ruleId}</span>
+                                  {wire.boundary_metrics.boundary_exercised && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-950/80 border border-amber-500/60 text-[9px] font-bold text-amber-300">
+                                      EDGE EXERCISED
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-neutral-400">
+                                    Latency: <strong className="text-cyan-300">{evalRes.evalLatencyMs.toFixed(2)}ms</strong> • Cost: <strong className="text-neutral-300">{evalRes.estimatedCost}u</strong>
+                                  </span>
+                                  <button
+                                    onClick={() => handleRunAdversarialCanary(evalRes.ruleId)}
+                                    className="px-2 py-0.5 rounded border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 text-[10px] font-bold transition-all"
+                                    title="Exercise rule constraint with an adversarial edge payload"
+                                  >
+                                    Probe Edge
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Progress bar visual with threshold marker */}
+                              <div className="space-y-1">
+                                <div className="relative w-full h-3 rounded-full bg-neutral-950 border border-neutral-800 overflow-hidden">
+                                  {/* 15% threshold line */}
+                                  <div 
+                                    className="absolute top-0 bottom-0 w-0.5 bg-amber-400 z-10 opacity-70"
+                                    style={{ left: '15%' }}
+                                    title="Deviation Collapse Threshold (15%)"
+                                  />
+                                  {/* Fill */}
+                                  <div
+                                    className={`h-full transition-all duration-500 rounded-full ${
+                                      isCollapsed
+                                        ? 'bg-amber-500'
+                                        : barPct > 20
+                                        ? 'bg-emerald-500'
+                                        : 'bg-cyan-500'
+                                    }`}
+                                    style={{ width: `${Math.min(100, Math.max(4, barPct))}%` }}
+                                  />
+                                </div>
+
+                                <div className="flex items-center justify-between text-[10px] text-neutral-400 pt-0.5">
+                                  <span className="text-neutral-500 truncate max-w-[280px]">
+                                    {evalRes.evaluatedExpression}
+                                  </span>
+                                  <div className="flex items-center gap-2 shrink-0 font-bold">
+                                    <span className={isCollapsed ? 'text-amber-400' : 'text-emerald-400'}>
+                                      BAR: {barPct.toFixed(1)}%
+                                    </span>
+                                    {isCollapsed && (
+                                      <span className="text-[9px] text-amber-400 bg-amber-950/60 px-1 rounded border border-amber-500/40">
+                                        COLLAPSED
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 2: POLICY CARDS */}
+                  {telemetryViewMode === 'CARDS' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {celEvalResults.map((evalRes) => (
+                        <div
+                          key={evalRes.ruleId}
+                          className={`rounded-lg border p-3 space-y-2 ${
+                            evalRes.permitted
+                              ? 'border-emerald-500/30 bg-emerald-950/10 text-neutral-200'
+                              : 'border-red-500/40 bg-red-950/20 text-red-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-xs flex items-center gap-1.5">
+                              {evalRes.permitted ? (
+                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                              ) : (
+                                <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
+                              )}
+                              <span>{evalRes.ruleId}</span>
+                            </span>
+                            <span className="text-[10px] text-neutral-400">
+                              Latency: {evalRes.evalLatencyMs.toFixed(2)}ms • Cost: {evalRes.estimatedCost}u
+                            </span>
+                          </div>
+
+                          <div className="text-[10px] font-mono text-neutral-400 truncate">
+                            {evalRes.evaluatedExpression}
+                          </div>
+
+                          <div className="flex items-center justify-between text-[10px] pt-1 border-t border-neutral-800">
+                            <span className={evalRes.permitted ? 'text-emerald-300 truncate max-w-[200px]' : 'text-red-300 truncate max-w-[200px]'}>
+                              {evalRes.reason}
+                            </span>
+                            <span className="text-neutral-400 font-bold shrink-0">
+                              BAR: {(evalRes.barTelemetry.updatedBar * 100).toFixed(1)}%
+                              {evalRes.barTelemetry.deviationCollapsed && (
+                                <span className="ml-1 text-amber-400">⚠️ COLLAPSED</span>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* TAB 3: PROTOBUF WIRE TELEMETRY */}
+                  {telemetryViewMode === 'PROTO_WIRE' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-neutral-300 font-bold">Standardized Wire Payloads (Emitted on Return)</span>
+                        <span className="text-[10px] text-cyan-400">proto3 • json-canonicalize compliant</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        {/* Proto Definition */}
+                        <div className="space-y-1.5">
+                          <span className="text-[10px] uppercase font-bold text-neutral-400">
+                            Protocol Buffers Schema (OCTEPOS Wire Spec):
                           </span>
-                          <span className="text-[10px] text-neutral-400">
-                            Latency: {evalRes.evalLatencyMs.toFixed(2)}ms • Cost: {evalRes.estimatedCost}u
-                          </span>
+                          <pre className="p-3 rounded-lg bg-neutral-950 border border-neutral-800 text-[10px] text-neutral-300 overflow-x-auto max-h-56 leading-relaxed">
+                            {CEL_TELEMETRY_PROTO_SCHEMA}
+                          </pre>
                         </div>
 
-                        <div className="text-[10px] font-mono text-neutral-400 truncate">
-                          {evalRes.evaluatedExpression}
-                        </div>
-
-                        <div className="flex items-center justify-between text-[10px] pt-1 border-t border-neutral-800">
-                          <span className={evalRes.permitted ? 'text-emerald-300 truncate max-w-[200px]' : 'text-red-300 truncate max-w-[200px]'}>
-                            {evalRes.reason}
+                        {/* JSON Payload Stream */}
+                        <div className="space-y-1.5">
+                          <span className="text-[10px] uppercase font-bold text-cyan-400">
+                            Live Wire Payloads (Current Evaluation):
                           </span>
-                          <span className="text-neutral-400 font-bold shrink-0">
-                            BAR: {(evalRes.barTelemetry.updatedBar * 100).toFixed(1)}%
-                            {evalRes.barTelemetry.deviationCollapsed && (
-                              <span className="ml-1 text-amber-400">⚠️ COLLAPSED</span>
-                            )}
-                          </span>
+                          <pre className="p-3 rounded-lg bg-neutral-950 border border-cyan-500/30 text-[10px] text-cyan-200 overflow-x-auto max-h-56 leading-relaxed">
+                            {JSON.stringify(celEvalResults.map(toCelTelemetryWirePayload), null, 2)}
+                          </pre>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
