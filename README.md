@@ -81,8 +81,8 @@ Security engineers do not need to take our invariants on faith. OCTEPOS includes
 ### Running the Test Suite Locally
 
 ```bash
-# Clone the repository
-git clone https://github.com/octepos/octepos.git
+# Clone your repository (or exported repository from AI Studio)
+git clone https://github.com/<your-username>/octepos.git
 cd octepos
 
 # Install dependencies
@@ -140,8 +140,8 @@ OCTEPOS is pre-configured with two reference commercial deployments:
 ## Getting Started
 
 ```bash
-# Clone and run the OCTEPOS Cockpit
-git clone https://github.com/octepos/octepos.git
+# Clone and run the OCTEPOS Cockpit (replace with your exported repo)
+git clone https://github.com/<your-username>/octepos.git
 cd octepos
 npm install
 npm run dev

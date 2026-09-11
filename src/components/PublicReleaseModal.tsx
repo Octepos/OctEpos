@@ -209,9 +209,9 @@ export const PublicReleaseModal: React.FC<PublicReleaseModalProps> = ({
               {/* Quickstart Command */}
               <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-4 space-y-2 font-mono">
                 <div className="flex items-center justify-between text-neutral-400 text-xs">
-                  <span>Quickstart Setup:</span>
+                  <span>Quickstart Setup (Your Local or Forked Repo):</span>
                   <button
-                    onClick={() => handleCopy('git clone https://github.com/octepos/octepos.git\ncd octepos\nnpm install\nnpm run dev', 'git-quickstart')}
+                    onClick={() => handleCopy('git clone https://github.com/<your-username>/octepos.git\ncd octepos\nnpm install\nnpm run dev', 'git-quickstart')}
                     className="text-cyan-400 hover:underline flex items-center gap-1"
                   >
                     {copied === 'git-quickstart' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
@@ -219,8 +219,8 @@ export const PublicReleaseModal: React.FC<PublicReleaseModalProps> = ({
                   </button>
                 </div>
                 <pre className="text-neutral-300 text-xs bg-neutral-900/80 p-3 rounded-lg overflow-x-auto">
-{`# Clone repository
-git clone https://github.com/octepos/octepos.git
+{`# Clone your repository (or exported repo from AI Studio)
+git clone https://github.com/<your-username>/octepos.git
 cd octepos
 
 # Install dependencies & start sovereign cockpit
